@@ -85,6 +85,26 @@ const TOOLS: ToolDefinition[] = [
       },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'create_event',
+      description: 'Создать событие в календаре (встреча, звонок, дедлайн, напоминание)',
+      parameters: {
+        type: 'object',
+        properties: {
+          title: { type: 'string' },
+          kind: { type: 'string', enum: ['meeting', 'call', 'deadline', 'reminder'] },
+          start: { type: 'string', description: 'ISO 8601 datetime' },
+          end: { type: 'string', description: 'ISO 8601 datetime, optional' },
+          all_day: { type: 'boolean' },
+          location: { type: 'string' },
+          description: { type: 'string' },
+        },
+        required: ['title', 'start'],
+      },
+    },
+  },
 ]
 
 /** Локальные обработчики tool-вызовов. */
@@ -112,6 +132,12 @@ async function executeTool(call: ToolCall): Promise<ToolResult> {
       case 'prepare_document':
         result = { status: 'queued', preview_url: null, kind: (call.arguments as any).kind }
         break
+      case 'create_event': {
+        const { useEventsStore } = await import('./events')
+        const ev = useEventsStore()
+        result = await ev.create(call.arguments as any)
+        break
+      }
       default:
         result = { error: `unknown tool: ${call.name}` }
     }

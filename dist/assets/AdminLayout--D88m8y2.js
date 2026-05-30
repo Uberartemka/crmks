@@ -1,1 +1,0 @@
-import{_ as o}from"./WorkspaceLayout.vue_vue_type_script_setup_true_lang-NXNtydWU.js";import{O as a,v as e,aO as t}from"./index-P1jCLDBE.js";import"./marked.esm-BmfX2-Jt.js";const p=a({__name:"AdminLayout",setup(r){return(n,_)=>(t(),e(o))}});export{p as default};

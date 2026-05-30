@@ -1,1 +1,0 @@
-import{_ as e}from"./WorkspaceLayout.vue_vue_type_script_setup_true_lang-NXNtydWU.js";import{O as o,v as t,aO as a}from"./index-P1jCLDBE.js";import"./marked.esm-BmfX2-Jt.js";const p=o({__name:"ClientLayout",setup(r){return(n,_)=>(a(),t(e))}});export{p as default};
