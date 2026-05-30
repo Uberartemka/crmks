@@ -17,5 +17,11 @@ export const useUsersStore = defineStore('users', () => {
     }
   }
 
-  return { list, loading, load }
+  async function create(data: { username: string; password: string; name: string; role?: string }) {
+    const { data: res } = await usersApi.create(data)
+    await load()
+    return res
+  }
+
+  return { list, loading, load, create }
 })

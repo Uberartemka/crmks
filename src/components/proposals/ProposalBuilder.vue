@@ -287,7 +287,7 @@ onMounted(() => {
 
         <!-- Table -->
         <div class="overflow-x-auto max-h-[420px] overflow-y-auto">
-          <table class="w-full text-[11px] text-left">
+          <table class="w-full text-[11px] text-left min-w-[650px]">
             <thead class="bg-slate-50 text-neutral-500 uppercase text-[9px] font-bold sticky top-0 z-10">
               <tr class="border-b border-neutral-200">
                 <th class="px-3 py-2">Артикул</th>
@@ -304,7 +304,7 @@ onMounted(() => {
                 <td class="px-3 py-2 text-neutral-600">{{ s.type }}</td>
                 <td class="px-3 py-2 text-center text-[10px] font-bold text-neutral-500">{{ s.d }}×{{ s.D }}×{{ s.B }}</td>
                 <td class="px-3 py-2 text-center text-[10px] font-bold uppercase" :class="s.brand==='HHB'?'text-brand-700':'text-neutral-600'">{{ s.brand }}</td>
-                <td class="px-3 py-2 text-right font-bold">{{ Math.round(s.price).toLocaleString('ru-RU') }} ₽</td>
+                <td class="px-3 py-2 text-right font-bold whitespace-nowrap">{{ Math.round(s.price).toLocaleString('ru-RU') }} ₽</td>
                 <td class="px-3 py-2 text-center">
                   <button @click="addSku(s)" class="btn-primary text-[10px] px-2 py-1">+</button>
                 </td>
