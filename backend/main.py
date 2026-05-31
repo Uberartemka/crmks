@@ -13,15 +13,11 @@ import json
 import time
 import os
 from dotenv import load_dotenv
+from db import PG_URL, SQLITE_PATH, get_db, q, db_cursor, _use_pg
 load_dotenv()
 import smtplib
-import sqlite3
 import psycopg2
 import hashlib
-try:
-    from openai import OpenAI
-except ImportError:
-    OpenAI = None
 import secrets
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -42,41 +38,11 @@ logger = logging.getLogger("HHB_B2B")
 
 from queue_manager import QueueManager
 
-# === Hybrid DB: PostgreSQL preferred, SQLite fallback for dev ===
-PG_URL = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/hhb_b2b")
-SQLITE_PATH = os.getenv("SQLITE_PATH", "D:/pod/backend/catalog.db")
 SERPAPI_KEY = os.getenv("SERPAPI_KEY", "")
 
 # === Jinja2 Templates ===
 TEMPLATE_DIR = os.path.join(os.path.dirname(__file__), 'templates')
 jinja_env = Environment(loader=FileSystemLoader(TEMPLATE_DIR))
-
-_use_pg = False
-
-def _test_pg():
-    global _use_pg
-    try:
-        conn = psycopg2.connect(PG_URL)
-        conn.close()
-        _use_pg = True
-        logger.info("[Database] PostgreSQL доступен. Используем PG для каталога/КП.")
-    except Exception:
-        _use_pg = False
-        logger.warning("[Database] PostgreSQL недоступен. Fallback на SQLite для каталога/КП.")
-
-_test_pg()
-
-def get_db():
-    if _use_pg:
-        return psycopg2.connect(PG_URL)
-    else:
-        return sqlite3.connect(SQLITE_PATH)
-
-def q(sql):
-    """Adapt SQL from PostgreSQL dialect to SQLite if needed."""
-    if _use_pg:
-        return sql
-    return sql.replace('%s', '?').replace('ILIKE', 'LIKE').replace('RETURNING id', '')
 
 def get_last_id(cursor):
     if _use_pg:
@@ -106,365 +72,55 @@ def verify_password(password: str, stored: str) -> bool:
 
 # === KIMI (Moonshot AI) CLIENT ===
 
-_kimi_client = None
+try:
+    import kimi_client
+except ImportError:
+    kimi_client = None
 
-def get_kimi_client():
-    global _kimi_client
-    if _kimi_client is None and OpenAI is not None:
-        api_key = os.getenv("KIMI_API_KEY")
-        if api_key:
-            _kimi_client = OpenAI(
-                api_key=api_key,
-                base_url="https://api.moonshot.cn/v1",
-            )
-    return _kimi_client
+# === AI TOOL REGISTRY (ai_registry) ===
 
-# === AI TOOL REGISTRY ===
+from ai_registry import tool
 
-def _tool_find_user(query: str, current_user: dict):
-    conn = get_db()
-    cursor = conn.cursor()
-    like = f"%{query}%"
-    cursor.execute(q("""
-        SELECT id, username, name, role FROM users
-        WHERE name ILIKE %s OR username ILIKE %s
-        ORDER BY name LIMIT 10
-    """), (like, like))
-    rows = cursor.fetchall()
-    conn.close()
-    return [{"id": r[0], "username": r[1], "name": r[2], "role": r[3]} for r in rows]
+from ai_agent import run_agent
 
-def _tool_list_users(role_filter: Optional[str] = None, current_user: dict = None):
-    conn = get_db()
-    cursor = conn.cursor()
-    if role_filter:
-        cursor.execute(q("SELECT id, username, name, role FROM users WHERE role = %s ORDER BY name"), (role_filter,))
-    else:
-        cursor.execute(q("SELECT id, username, name, role FROM users ORDER BY name"))
-    rows = cursor.fetchall()
-    conn.close()
-    return [{"id": r[0], "username": r[1], "name": r[2], "role": r[3]} for r in rows]
-
-def _tool_list_clients(search: Optional[str] = None, current_user: dict = None):
-    conn = get_db()
-    cursor = conn.cursor()
-    if search:
-        like = f"%{search}%"
-        cursor.execute(q("""
-            SELECT id, name, email, city, status, discount FROM clients
-            WHERE name ILIKE %s OR email ILIKE %s OR city ILIKE %s
-            ORDER BY name LIMIT 20
-        """), (like, like, like))
-    else:
-        cursor.execute(q("SELECT id, name, email, city, status, discount FROM clients ORDER BY name LIMIT 20"))
-    rows = cursor.fetchall()
-    conn.close()
+@tool(
+    name="list_clients",
+    description="Получить список клиентов или найти по названию/городу",
+    parameters={
+        "type": "object",
+        "properties": {"search": {"type": "string", "description": "Поиск по названию, email или городу"}},
+    },
+    roles=["admin", "manager", "employee"],
+)
+def list_clients(ctx: dict, search: Optional[str] = None):
+    with db_cursor() as cur:
+        if search:
+            like = f"%{search}%"
+            cur.execute(q("""
+                SELECT id, name, email, city, status, discount FROM clients
+                WHERE name ILIKE %s OR email ILIKE %s OR city ILIKE %s
+                ORDER BY name LIMIT 20
+            """), (like, like, like))
+        else:
+            cur.execute(q("SELECT id, name, email, city, status, discount FROM clients ORDER BY name LIMIT 20"))
+        rows = cur.fetchall()
     return [{"id": r[0], "name": r[1], "email": r[2], "city": r[3], "status": r[4], "discount": r[5]} for r in rows]
 
-def _tool_list_tasks(status: Optional[str] = None, assigned_to: Optional[int] = None, current_user: dict = None):
-    conn = get_db()
-    cursor = conn.cursor()
-    # Use tasks table if exists, otherwise employee_plans as fallback
-    try:
-        if status and assigned_to:
-            cursor.execute(q("""
-                SELECT id, title, description, status, priority, due_date, assigned_to FROM tasks
-                WHERE status = %s AND assigned_to = %s ORDER BY due_date
-            """), (status, assigned_to))
-        elif status:
-            cursor.execute(q("""
-                SELECT id, title, description, status, priority, due_date, assigned_to FROM tasks
-                WHERE status = %s ORDER BY due_date
-            """), (status,))
-        elif assigned_to:
-            cursor.execute(q("""
-                SELECT id, title, description, status, priority, due_date, assigned_to FROM tasks
-                WHERE assigned_to = %s ORDER BY due_date
-            """), (assigned_to,))
-        else:
-            cursor.execute(q("SELECT id, title, description, status, priority, due_date, assigned_to FROM tasks ORDER BY due_date"))
-    except Exception:
-        # Fallback: no tasks table yet
-        conn.close()
-        return []
-    rows = cursor.fetchall()
-    conn.close()
-    return [{"id": r[0], "title": r[1], "description": r[2], "status": r[3], "priority": r[4], "due_date": r[5], "assigned_to": r[6]} for r in rows]
-
-def _tool_create_task(title: str, description: str = "", assignee_id: Optional[int] = None, priority: str = "medium", due_date: Optional[str] = None, current_user: dict = None):
-    if current_user["role"] not in ("admin", "manager"):
-        return {"error": "Forbidden: only admin or manager can create tasks"}
-    # Manager can only assign to self unless admin
-    if current_user["role"] == "manager" and assignee_id and assignee_id != current_user["id"]:
-        return {"error": "Manager can only assign tasks to themselves"}
-    conn = get_db()
-    cursor = conn.cursor()
-    now = datetime.now().isoformat()
-    try:
-        cursor.execute(q("""
-            INSERT INTO tasks (title, description, status, priority, due_date, assigned_to, created_by, created_at, updated_at)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id
-        """), (title, description, "todo", priority, due_date, assignee_id or current_user["id"], current_user["id"], now, now))
-        tid = get_last_id(cursor)
-        conn.commit()
-        conn.close()
-        return {"id": tid, "title": title, "status": "todo", "assigned_to": assignee_id or current_user["id"]}
-    except Exception as e:
-        conn.close()
-        return {"error": str(e)}
-
-def _tool_update_task_status(task_id: int, status: str, current_user: dict = None):
-    if current_user["role"] not in ("admin", "manager"):
-        return {"error": "Forbidden"}
-    conn = get_db()
-    cursor = conn.cursor()
-    now = datetime.now().isoformat()
-    cursor.execute(q("UPDATE tasks SET status = %s, updated_at = %s WHERE id = %s"), (status, now, task_id))
-    conn.commit()
-    conn.close()
-    return {"task_id": task_id, "status": status}
-
-def _tool_assign_tasks_bulk(client_ids: List[int], manager_id: int, template: str = "", current_user: dict = None):
-    if current_user["role"] != "admin":
-        return {"error": "Only admin can bulk assign"}
-    created = []
-    conn = get_db()
-    cursor = conn.cursor()
-    now = datetime.now().isoformat()
-    for cid in client_ids:
-        cursor.execute(q("SELECT name FROM clients WHERE id = %s"), (cid,))
-        row = cursor.fetchone()
-        client_name = row[0] if row else f"Client #{cid}"
-        title = template.replace("{client_name}", client_name) if template else f"Работа с {client_name}"
-        try:
-            cursor.execute(q("""
-                INSERT INTO tasks (title, description, status, priority, assigned_to, created_by, created_at, updated_at)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING id
-            """), (title, "", "todo", "medium", manager_id, current_user["id"], now, now))
-            tid = get_last_id(cursor)
-            created.append({"task_id": tid, "client_id": cid, "title": title})
-        except Exception as e:
-            created.append({"client_id": cid, "error": str(e)})
-    conn.commit()
-    conn.close()
-    return {"created": created}
-
-def _tool_prepare_document(doc_type: str, client_id: Optional[int] = None, current_user: dict = None):
+@tool(
+    name="prepare_document",
+    description="Подготовить документ (ТЭО, КП, аудит)",
+    parameters={
+        "type": "object",
+        "properties": {
+            "doc_type": {"type": "string", "enum": ["teo", "kp", "audit"]},
+            "client_id": {"type": "integer"},
+        },
+        "required": ["doc_type"],
+    },
+    roles=["admin", "manager", "employee"],
+)
+def prepare_document(ctx: dict, doc_type: str, client_id: Optional[int] = None):
     return {"status": "queued", "doc_type": doc_type, "client_id": client_id, "preview_url": None}
-
-TOOL_REGISTRY = {
-    "find_user": _tool_find_user,
-    "list_users": _tool_list_users,
-    "list_clients": _tool_list_clients,
-    "list_tasks": _tool_list_tasks,
-    "create_task": _tool_create_task,
-    "update_task_status": _tool_update_task_status,
-    "assign_tasks_bulk": _tool_assign_tasks_bulk,
-    "prepare_document": _tool_prepare_document,
-}
-
-TOOL_DEFINITIONS = [
-    {
-        "type": "function",
-        "function": {
-            "name": "find_user",
-            "description": "Найти пользователя (сотрудника, менеджера, клиента) по имени, email или фрагменту",
-            "parameters": {
-                "type": "object",
-                "properties": {"query": {"type": "string", "description": "Имя, email или фрагмент для поиска"}},
-                "required": ["query"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "list_users",
-            "description": "Получить список пользователей. Можно фильтровать по роли.",
-            "parameters": {
-                "type": "object",
-                "properties": {"role_filter": {"type": "string", "enum": ["admin", "manager", "employee", "client"], "description": "Фильтр по роли"}},
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "list_clients",
-            "description": "Получить список клиентов или найти по названию/городу",
-            "parameters": {
-                "type": "object",
-                "properties": {"search": {"type": "string", "description": "Поиск по названию, email или городу"}},
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "list_tasks",
-            "description": "Получить список задач с фильтрами",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "status": {"type": "string", "enum": ["todo", "in_progress", "done", "blocked"]},
-                    "assigned_to": {"type": "integer", "description": "ID исполнителя"},
-                },
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "create_task",
-            "description": "Создать новую задачу. Админ может назначить любому, менеджер — только себе.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "title": {"type": "string"},
-                    "description": {"type": "string"},
-                    "assignee_id": {"type": "integer", "description": "ID исполнителя. Если не указан — себе."},
-                    "priority": {"type": "string", "enum": ["low", "medium", "high", "urgent"]},
-                    "due_date": {"type": "string", "description": "ISO 8601 datetime"},
-                },
-                "required": ["title"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "update_task_status",
-            "description": "Обновить статус задачи",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "task_id": {"type": "integer"},
-                    "status": {"type": "string", "enum": ["todo", "in_progress", "done", "blocked"]},
-                },
-                "required": ["task_id", "status"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "assign_tasks_bulk",
-            "description": "Пакетное создание задач для нескольких клиентов (только админ)",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "client_ids": {"type": "array", "items": {"type": "integer"}},
-                    "manager_id": {"type": "integer"},
-                    "template": {"type": "string", "description": "Шаблон названия задачи, {client_name}"},
-                },
-                "required": ["client_ids", "manager_id"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "prepare_document",
-            "description": "Подготовить документ (ТЭО, КП, аудит)",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "doc_type": {"type": "string", "enum": ["teo", "kp", "audit"]},
-                    "client_id": {"type": "integer"},
-                },
-                "required": ["doc_type"],
-            },
-        },
-    },
-]
-
-# === AGENT LOOP ===
-
-def run_kimi_agent(messages: List[Dict[str, str]], current_user: dict, max_rounds: int = 10):
-    client = get_kimi_client()
-    if not client:
-        raise HTTPException(status_code=500, detail="Kimi client not configured")
-
-    system_prompt = (
-        "Ты — AI-ассистент админ-панели HHB (B2B дистрибьютор подшипников). "
-        "У тебя есть доступ к БД через инструменты. "
-        "Правила:\n"
-        "- Если пользователь упоминает имя — сначала find_user, не угадывай ID\n"
-        "- Если нашёл несколько совпадений — переспроси кого именно\n"
-        "- Перед массовыми действиями — подтверди план одной фразой\n"
-        "- После выполнения — кратко отчитайся: 'Готово, задача #142 назначена Ивану'\n"
-        "- Не выдумывай ID, статусы, даты — только из реальных tool-результатов\n"
-        "- На русском, по-деловому, без воды"
-    )
-
-    # Inject system prompt
-    chat_messages = [{"role": "system", "content": system_prompt}]
-    for m in messages:
-        if m.get("role") in ("user", "assistant", "tool"):
-            chat_messages.append({"role": m["role"], "content": m.get("content", "")})
-
-    for _ in range(max_rounds):
-        response = client.chat.completions.create(
-            model="moonshot-v1-8k",
-            messages=chat_messages,
-            tools=TOOL_DEFINITIONS,
-            temperature=0.3,
-        )
-
-        choice = response.choices[0]
-        msg = choice.message
-
-        # If no tool calls, return the response
-        if not msg.tool_calls:
-            return {
-                "id": str(int(time.time())),
-                "role": "assistant",
-                "content": msg.content or "",
-                "created_at": datetime.now().isoformat(),
-            }
-
-        # Execute tool calls
-        assistant_msg = {"role": "assistant", "content": msg.content or ""}
-        if msg.tool_calls:
-            assistant_msg["tool_calls"] = []
-            for tc in msg.tool_calls:
-                assistant_msg["tool_calls"].append({
-                    "id": tc.id,
-                    "type": tc.type,
-                    "function": {"name": tc.function.name, "arguments": tc.function.arguments},
-                })
-        chat_messages.append(assistant_msg)
-
-        for tc in msg.tool_calls:
-            tool_name = tc.function.name
-            try:
-                args = json.loads(tc.function.arguments)
-            except Exception:
-                args = {}
-
-            if tool_name in TOOL_REGISTRY:
-                tool_fn = TOOL_REGISTRY[tool_name]
-                try:
-                    result = tool_fn(**args, current_user=current_user)
-                except TypeError:
-                    # Remove current_user if tool doesn't accept it
-                    result = tool_fn(**args)
-            else:
-                result = {"error": f"Unknown tool: {tool_name}"}
-
-            chat_messages.append({
-                "role": "tool",
-                "tool_call_id": tc.id,
-                "content": json.dumps(result, ensure_ascii=False),
-            })
-
-    # Max rounds exceeded
-    return {
-        "id": str(int(time.time())),
-        "role": "assistant",
-        "content": "Достигнут лимит итераций. Попробуйте уточнить запрос.",
-        "created_at": datetime.now().isoformat(),
-    }
 
 def init_catalog_tables():
     """Initialize SKU catalog, clients, proposals and proposal_items tables."""
@@ -568,7 +224,7 @@ def init_catalog_tables():
                     need_description TEXT,
                     query VARCHAR(200),
                     region VARCHAR(100),
-                    status VARCHAR(50) DEFAULT 'new',
+                    status VARCHAR(50) DEFAULT 'новый',
                     assigned_to INTEGER REFERENCES users(id) ON DELETE SET NULL,
                     call_count INTEGER DEFAULT 0,
                     created_at VARCHAR(100),
@@ -587,20 +243,6 @@ def init_catalog_tables():
                     location VARCHAR(300),
                     client_id INTEGER REFERENCES clients(id) ON DELETE SET NULL,
                     color VARCHAR(20) DEFAULT 'blue',
-                    created_at VARCHAR(100),
-                    updated_at VARCHAR(100)
-                )
-            """)
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS tasks (
-                    id SERIAL PRIMARY KEY,
-                    title VARCHAR(300) NOT NULL,
-                    description TEXT,
-                    status VARCHAR(50) DEFAULT 'todo',
-                    priority VARCHAR(20) DEFAULT 'medium',
-                    due_date VARCHAR(100),
-                    assigned_to INTEGER REFERENCES users(id) ON DELETE SET NULL,
-                    created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
                     created_at VARCHAR(100),
                     updated_at VARCHAR(100)
                 )
@@ -638,20 +280,6 @@ def init_catalog_tables():
                     location TEXT,
                     client_id INTEGER,
                     color TEXT DEFAULT 'blue',
-                    created_at TEXT,
-                    updated_at TEXT
-                )
-            """)
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS tasks (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    title TEXT NOT NULL,
-                    description TEXT,
-                    status TEXT DEFAULT 'todo',
-                    priority TEXT DEFAULT 'medium',
-                    due_date TEXT,
-                    assigned_to INTEGER,
-                    created_by INTEGER,
                     created_at TEXT,
                     updated_at TEXT
                 )
@@ -732,7 +360,7 @@ def init_catalog_tables():
                     need_description TEXT,
                     query TEXT,
                     region TEXT,
-                    status TEXT DEFAULT 'new',
+                    status TEXT DEFAULT 'новый',
                     assigned_to INTEGER,
                     call_count INTEGER DEFAULT 0,
                     created_at TEXT,
@@ -966,7 +594,7 @@ def verify_b2b_token(request: Request):
     return token
 
 # === USER AUTHENTICATION SYSTEM ===
-active_tokens: Dict[str, int] = {}
+from auth_state import active_tokens
 
 class UserLogin(BaseModel):
     username: str
@@ -2246,14 +1874,6 @@ def get_local_fallback_response(query):
             "cross": "FKL UCF208, SKF FY 40 TF"
         }
 
-# === KIMI AI CHAT ENDPOINT ===
-
-@app.post("/api/ai/chat")
-def ai_chat(payload: AiChatRequest, current_user: dict = Depends(get_current_user)):
-    messages = [{"role": m.role, "content": m.content} for m in payload.messages]
-    result = run_kimi_agent(messages, current_user)
-    return {"message": result}
-
 # === AUTH & EMPLOYEE DASHBOARD ENDPOINTS ===
 
 @app.post("/api/auth/login")
@@ -2510,7 +2130,7 @@ def create_lead(data: dict, current_user: dict = Depends(get_current_user)):
         INSERT INTO parsed_leads (name, category, city, contacts, need_description, query, region, status, assigned_to, created_at, updated_at)
         VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id
     """), (data.get('name'), data.get('category'), data.get('city'), data.get('contacts'),
-           data.get('need_description'), data.get('query'), data.get('region'), data.get('status', 'new'), assigned_to, now, now))
+           data.get('need_description'), data.get('query'), data.get('region'), data.get('status', 'новый'), assigned_to, now, now))
     conn.commit()
     lid = get_last_id(cursor)
     conn.close()
@@ -2612,7 +2232,7 @@ def get_daily_plan(current_user: dict = Depends(get_current_user)):
 
         # Сколько лидов назначено
         cursor.execute(q("""
-            SELECT COUNT(*) FROM parsed_leads WHERE assigned_to = %s AND status != 'converted'
+            SELECT COUNT(*) FROM parsed_leads WHERE assigned_to = %s AND status != 'закрыт'
         """), (uid,))
         assigned_leads = cursor.fetchone()[0]
 
@@ -2646,7 +2266,7 @@ def generate_daily_plan(current_user: dict = Depends(get_current_user)):
 
     # Получить все нераспределенные лиды
     cursor.execute(q("""
-        SELECT id FROM parsed_leads WHERE assigned_to IS NULL AND status = 'new' ORDER BY created_at DESC
+        SELECT id FROM parsed_leads WHERE assigned_to IS NULL AND status = 'новый' ORDER BY created_at DESC
     """))
     unassigned = [r[0] for r in cursor.fetchall()]
 
@@ -2662,6 +2282,16 @@ def generate_daily_plan(current_user: dict = Depends(get_current_user)):
     conn.commit()
     conn.close()
     return {"detail": f"Assigned {assigned_count} leads to {len(employees)} employees"}
+
+# === AI TOOLS IMPORTS (side-effect: @tool регистрация в ai_registry) ===
+
+import ai_tools_users  # noqa: F401 — регистрирует find_user, list_users
+import ai_tools_leads  # noqa: F401 — регистрирует list_leads, assign_leads_bulk
+
+# === AI ROUTES (подключаем после определения всех auth-зависимостей) ===
+
+from ai_routes import router as _ai_router
+app.include_router(_ai_router)
 
 if __name__ == "__main__":
     logger.info("[Server] Запуск веб-сервера FastAPI на http://127.0.0.1:8000 ...")

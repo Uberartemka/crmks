@@ -25,9 +25,9 @@ class QueueManager:
             try:
                 conn = psycopg2.connect(DATABASE_URL)
                 cursor = conn.cursor()
-                # Create tasks table using PostgreSQL dialect
+                # Create job_queue table using PostgreSQL dialect
                 cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS tasks (
+                    CREATE TABLE IF NOT EXISTS job_queue (
                         id SERIAL PRIMARY KEY,
                         task_type VARCHAR(100) NOT NULL,
                         status VARCHAR(50) NOT NULL DEFAULT 'pending',
@@ -55,7 +55,7 @@ class QueueManager:
             cursor = conn.cursor()
             # In PostgreSQL we use %s and RETURNING id to get the inserted serial ID
             cursor.execute("""
-                INSERT INTO tasks (task_type, status, payload, max_retries, created_at, updated_at)
+                INSERT INTO job_queue (task_type, status, payload, max_retries, created_at, updated_at)
                 VALUES (%s, 'pending', %s, %s, %s, %s)
                 RETURNING id
             """, (task_type, payload_json, max_retries, now, now))
@@ -71,7 +71,7 @@ class QueueManager:
         cursor = conn.cursor()
         cursor.execute("""
             SELECT id, task_type, status, retries, max_retries, error_message, updated_at 
-            FROM tasks WHERE id = %s
+            FROM job_queue WHERE id = %s
         """, (task_id,))
         row = cursor.fetchone()
         conn.close()
@@ -88,7 +88,7 @@ class QueueManager:
         cursor = conn.cursor()
         cursor.execute("""
             SELECT id, task_type, status, retries, max_retries, error_message, created_at 
-            FROM tasks ORDER BY id DESC LIMIT %s
+            FROM job_queue ORDER BY id DESC LIMIT %s
         """, (limit,))
         rows = cursor.fetchall()
         conn.close()
@@ -104,7 +104,7 @@ class QueueManager:
     def get_queue_stats(self):
         conn = psycopg2.connect(DATABASE_URL)
         cursor = conn.cursor()
-        cursor.execute("SELECT status, COUNT(*) FROM tasks GROUP BY status")
+        cursor.execute("SELECT status, COUNT(*) FROM job_queue GROUP BY status")
         rows = cursor.fetchall()
         conn.close()
         
@@ -119,7 +119,7 @@ class QueueManager:
             conn = psycopg2.connect(DATABASE_URL)
             cursor = conn.cursor()
             cursor.execute("""
-                UPDATE tasks 
+                UPDATE job_queue 
                 SET status = 'pending', retries = 0, error_message = NULL, updated_at = %s
                 WHERE id = %s AND status = 'failed'
             """, (now, task_id))
@@ -163,7 +163,7 @@ class QueueManager:
             # Postgres supports SELECT ... FOR UPDATE for highly secure concurrent row-locking!
             cursor.execute("""
                 SELECT id, task_type, payload, retries, max_retries 
-                FROM tasks 
+                FROM job_queue 
                 WHERE status = 'pending' 
                 ORDER BY id ASC LIMIT 1 
                 FOR UPDATE SKIP LOCKED
@@ -171,7 +171,7 @@ class QueueManager:
             row = cursor.fetchone()
             if row:
                 task_id, task_type, payload, retries, max_retries = row
-                cursor.execute("UPDATE tasks SET status = 'processing', updated_at = %s WHERE id = %s", (now, task_id))
+                cursor.execute("UPDATE job_queue SET status = 'processing', updated_at = %s WHERE id = %s", (now, task_id))
                 conn.commit()
                 conn.close()
                 return {"id": task_id, "type": task_type, "payload": json.loads(payload), "retries": retries, "max_retries": max_retries}
@@ -222,20 +222,20 @@ class QueueManager:
             cursor = conn.cursor()
             
             if success:
-                cursor.execute("UPDATE tasks SET status = 'completed', updated_at = %s WHERE id = %s", (now, task_id))
+                cursor.execute("UPDATE job_queue SET status = 'completed', updated_at = %s WHERE id = %s", (now, task_id))
                 logger.info(f"[Queue Worker] Задача #{task_id} выполнена успешно!")
             else:
                 new_retries = task["retries"] + 1
                 if new_retries >= task["max_retries"]:
                     cursor.execute("""
-                        UPDATE tasks 
+                        UPDATE job_queue 
                         SET status = 'failed', retries = %s, error_message = %s, updated_at = %s 
                         WHERE id = %s
                     """, (new_retries, error_msg, now, task_id))
                     logger.error(f"[!] [Queue Worker] Задача #{task_id} исчерпала попытки. Статус: FAILED")
                 else:
                     cursor.execute("""
-                        UPDATE tasks 
+                        UPDATE job_queue 
                         SET status = 'pending', retries = %s, error_message = %s, updated_at = %s 
                         WHERE id = %s
                     """, (new_retries, error_msg, now, task_id))
