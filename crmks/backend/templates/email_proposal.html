@@ -1,0 +1,52 @@
+<!doctype html>
+<html>
+  <body style="font-family:Arial,sans-serif">
+    <div style="max-width:700px;margin:0 auto">
+      <div style="border-bottom:3px solid #C8102E;padding-bottom:15px;margin-bottom:20px">
+        <h2 style="color:#1A237E;margin:0">ООО «Компонент Сервис»</h2>
+        <p style="color:#666;margin:5px 0 0;font-size:12px">Официальный Дистрибьютор HHB & FKD в России</p>
+      </div>
+
+      <h3 style="color:#C8102E">{{ proposal.title }}</h3>
+
+      <p><strong>Клиент:</strong> {{ proposal.client_name }}</p>
+      <p><strong>Дата:</strong> {{ created_date_short }}</p>
+      <p><strong>Глобальная скидка:</strong> {{ global_discount }}%</p>
+
+      <table style="width:100%;border-collapse:collapse;font-size:13px;margin-top:15px">
+        <thead style="background:#1A237E;color:#fff">
+          <tr>
+            <th style="padding:8px;border:1px solid #ddd">Артикул</th>
+            <th style="padding:8px;border:1px solid #ddd">Описание</th>
+            <th style="padding:8px;border:1px solid #ddd">Кол-во</th>
+            <th style="padding:8px;border:1px solid #ddd">База</th>
+            <th style="padding:8px;border:1px solid #ddd">Скидка</th>
+            <th style="padding:8px;border:1px solid #ddd">Цена</th>
+            <th style="padding:8px;border:1px solid #ddd">Сумма</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for item in items %}
+          <tr>
+            <td style="border:1px solid #ddd;padding:8px">{{ item.sku }}</td>
+            <td style="border:1px solid #ddd;padding:8px">{{ item.type }}</td>
+            <td style="border:1px solid #ddd;padding:8px;text-align:center">{{ item.qty }}</td>
+            <td style="border:1px solid #ddd;padding:8px;text-align:right">{{ item.price_base }} ₽</td>
+            <td style="border:1px solid #ddd;padding:8px;text-align:center">{{ item.discount_item }}%</td>
+            <td style="border:1px solid #ddd;padding:8px;text-align:right">{{ item.price_final_global }} ₽</td>
+            <td style="border:1px solid #ddd;padding:8px;text-align:right">{{ item.row_total }} ₽</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+
+      <p style="text-align:right;font-size:18px;font-weight:bold;margin-top:20px">
+        ИТОГО: {{ total_amount_formatted }} ₽
+      </p>
+
+      <div style="margin-top:30px;padding-top:15px;border-top:1px solid #ddd;font-size:11px;color:#999">
+        По всем вопросам: +7 (473) 255-00-00 | csbrg.ru
+      </div>
+    </div>
+  </body>
+</html>
