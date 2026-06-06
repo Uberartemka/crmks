@@ -18,7 +18,11 @@ async def on_startup() -> None:
     startup_init_db()
     _init_queue_manager()
     await init_async_pool()
-    await init_token_store()
+    # Redis-dependent services: graceful degrade if Redis unavailable
+    try:
+        await init_token_store()
+    except Exception as e:
+        print(f"[WARN] token_store init skipped — Redis unavailable: {e}")
     # await init_async_pool()   # задача 1
     # await init_token_store()  # задача 3
 
