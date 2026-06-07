@@ -160,11 +160,14 @@ class QueueManager:
     # === BACKGROUND WORKER THREAD LOGIC ===
     def start_worker(self):
         if not self.running:
-            # Ensure Chromium is started once for the whole worker lifecycle
+            # Check if Chromium is available; warn if not but don't crash the worker
             try:
-                from services.pdf_service import ensure_pdf_browser_started
+                from services.pdf_service import ensure_pdf_browser_started, is_chromium_available
 
-                ensure_pdf_browser_started()
+                if is_chromium_available():
+                    ensure_pdf_browser_started()
+                else:
+                    logger.warning("[Queue Worker] Chromium/Playwright не установлен — PDF generation будет недоступен. Установите: playwright install chromium")
             except Exception as e:
                 logger.warning(f"[Queue Worker] Не удалось заранее стартовать pdf_service Chromium: {e}")
 

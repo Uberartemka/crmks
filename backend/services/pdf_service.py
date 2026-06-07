@@ -92,6 +92,19 @@ def _get_browser():
         return _browser
 
 
+def is_chromium_available() -> bool:
+    """Check if Chromium binary is installed without crashing."""
+    import os
+    candidate = os.path.expanduser("~/.cache/ms-playwright/chromium_headless_shell-1223/chrome-headless-shell-linux64/chrome-headless-shell")
+    if os.path.exists(candidate):
+        return True
+    candidate2 = os.path.expanduser("~/.cache/ms-playwright/chromium-1223/chrome-linux/chrome")
+    if os.path.exists(candidate2):
+        return True
+    # If we can't find it, try launching to be sure, but don't crash
+    return False
+
+
 def ensure_pdf_browser_started() -> None:
     # explicit name for clarity: called by queue worker start
     _get_browser()

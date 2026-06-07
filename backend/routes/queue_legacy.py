@@ -16,8 +16,8 @@ logger = logging.getLogger("HHB_B2B")
 router = APIRouter(tags=["queue", "webhooks"])
 
 
-# Instantiate queue manager and start worker thread on server boot
-_init_queue_manager()
+# Lazy init — queue manager (and its Chromium worker) started only when first needed
+# Module-level init was crashing on Railway where Chromium/Playwright are not installed.
 get_queue_manager = _get_queue_manager
 
 
