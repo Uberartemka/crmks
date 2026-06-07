@@ -1,0 +1,1 @@
+import{_ as o}from"./ProposalBuilder.vue_vue_type_script_setup_true_lang-CCJJ8Rts.js";import{O as t,v as e,aO as r}from"./index-ClYNJY9B.js";import"./catalog-BRNKq1Ek.js";import"./clients-CWx_xmzA.js";import"./proposals-CKN2I-vU.js";const f=t({__name:"ProposalsView",setup(a){return(p,s)=>(r(),e(o,{title:"Отправить КП"}))}});export{f as default};
