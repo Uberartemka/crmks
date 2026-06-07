@@ -6,8 +6,7 @@ import secrets
 from datetime import datetime
 from typing import Any, Dict, Optional
 
-import os
-from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
 from auth_deps import get_current_user as _get_current_user
@@ -235,33 +234,6 @@ async def search_email(q: str):
 def register_routes(app) -> None:
     # Public/auth/search endpoints
     app.include_router(router)
-
-    # --- TEMP: restore DB from dump (protected by env key) ---
-    @app.post("/api/restore-db")
-    async def restore_db(
-        request: Request,
-        secret: str = Query(...),
-        body: str = Body(..., media_type="text/plain"),
-    ):
-        expected = os.environ.get("RESTORE_SECRET", "")
-        if not expected or secret != expected:
-            raise HTTPException(403, "Invalid or missing secret")
-        from db import _use_pg
-        if not _use_pg:
-            raise HTTPException(400, "Not using PostgreSQL (SQLite mode)")
-        from db import get_db, q
-        statements = [s.strip() for s in body.split(";") if s.strip()]
-        done = 0
-        errors = []
-        with get_db() as db:
-            c = db.cursor()
-            for stmt in statements:
-                try:
-                    c.execute(stmt)
-                except Exception as e:
-                    errors.append({"stmt": stmt[:80], "error": str(e)})
-            db.commit()
-        return {"applied": done, "errors": errors}
 
     # Startup hooks (scheduler) + middleware (rate limiter)
     from startup.scheduler_startup import register_scheduler_startup
