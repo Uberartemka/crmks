@@ -1,1 +1,0 @@
-import{k as e}from"./index-ClYNJY9B.js";const i={list:a=>e.get("/api/leads",{params:a}),create:a=>e.post("/api/leads",a),assign:(a,s)=>e.put(`/api/leads/${a}/assign`,s),updateStatus:(a,s)=>e.put(`/api/leads/${a}/status`,{status:s}),briefing:a=>e.get(`/api/leads/${a}/briefing`),delete:a=>e.delete(`/api/leads/${a}`)};export{i as l};

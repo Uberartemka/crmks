@@ -172,11 +172,10 @@ async function sendEmail() {
   await refreshProposal()
 }
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
-
 function openPublicLink() {
   if (!currentProposalId.value) return
-  window.open(`${API_BASE}/kp/${currentProposalId.value}`, '_blank')
+  const origin = window.location.origin
+  window.open(`${origin}/kp/${currentProposalId.value}`, '_blank')
 }
 
 function sleep(ms: number) {

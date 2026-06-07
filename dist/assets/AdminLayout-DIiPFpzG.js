@@ -1,1 +1,0 @@
-import{_ as o}from"./WorkspaceLayout.vue_vue_type_script_setup_true_lang-Bkd7TjvY.js";import{O as t,v as r,aO as a}from"./index-ClYNJY9B.js";import"./createLucideIcon-566zTpTS.js";import"./marked.esm-BmL9JqhC.js";import"./chevron-right-CNFjcF-Y.js";import"./x-CuGzZgLY.js";const u=t({__name:"AdminLayout",setup(e){return(m,p)=>(a(),r(o))}});export{u as default};

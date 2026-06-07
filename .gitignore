@@ -19,3 +19,4 @@ plan_managers.html
 backend/_tmp_*
 backend/*.db
 backend/app.log
+/dist  
