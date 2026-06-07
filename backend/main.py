@@ -16,7 +16,7 @@ load_dotenv(override=True)
 
 async def on_startup() -> None:
     startup_init_db()
-    _init_queue_manager()
+    # _init_queue_manager()  # disabled on Railway — queue requires PostgreSQL + Chromium
     await init_async_pool()
     # Redis-dependent services: graceful degrade if Redis unavailable
     try:
