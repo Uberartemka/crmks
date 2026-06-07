@@ -17,7 +17,6 @@ from schemas.auth import UserCreate, UserLogin
 from utils.auth_utils import hash_password, verify_password
 from utils.db_utils import get_last_id
 from utils.web_search import _search_email_from_db, _search_web_email
-
 logger = logging.getLogger("HHB_B2B")
 
 router = APIRouter(tags=["index"])
@@ -263,9 +262,6 @@ def register_routes(app) -> None:
                     errors.append({"stmt": stmt[:80], "error": str(e)})
             db.commit()
         return {"applied": done, "errors": errors}
-
-    # Debug endpoint (check env vars)
-    app.include_router(debug_router)
 
     # Startup hooks (scheduler) + middleware (rate limiter)
     from startup.scheduler_startup import register_scheduler_startup
