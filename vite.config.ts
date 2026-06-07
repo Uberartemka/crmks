@@ -9,11 +9,14 @@ export default defineConfig({
   },
   server: {
     port: 5173,
+    host: true,
+    allowedHosts: ['crmks-production.up.railway.app', '.railway.app'],
     proxy: {
       '/api': { target: 'http://localhost:8000', changeOrigin: true },
     },
   },
   preview: {
-    allowedHosts: true,
+    host: true,
+    allowedHosts: ['crmks-production.up.railway.app', '.railway.app'],
   },
 })
