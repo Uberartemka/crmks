@@ -42,6 +42,7 @@ def init_catalog_tables() -> None:
         cursor = conn.cursor()
 
         if _use_pg:
+            # ===== Tables without FK dependencies first =====
             cursor.execute(
                 """
                 CREATE TABLE IF NOT EXISTS sku_catalog (
@@ -66,6 +67,39 @@ def init_catalog_tables() -> None:
                 )
                 """
             )
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS users (
+                    id SERIAL PRIMARY KEY,
+                    username VARCHAR(100) NOT NULL UNIQUE,
+                    password_hash VARCHAR(256) NOT NULL,
+                    name VARCHAR(200) NOT NULL,
+                    role VARCHAR(50) NOT NULL DEFAULT 'employee',
+                    created_at VARCHAR(100)
+                )
+                """
+            )
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS parsed_leads (
+                    id SERIAL PRIMARY KEY,
+                    name VARCHAR(300) NOT NULL,
+                    category VARCHAR(200),
+                    city VARCHAR(100),
+                    contacts TEXT,
+                    need_description TEXT,
+                    query VARCHAR(200),
+                    region VARCHAR(100),
+                    status VARCHAR(50) DEFAULT 'новый',
+                    source VARCHAR(100) DEFAULT 'manual',
+                    assigned_to INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                    call_count INTEGER DEFAULT 0,
+                    created_at VARCHAR(100),
+                    updated_at VARCHAR(100)
+                )
+                """
+            )
+            # ===== Tables that reference users, clients, parsed_leads =====
             cursor.execute(
                 """
                 CREATE TABLE IF NOT EXISTS proposals (
@@ -94,33 +128,6 @@ def init_catalog_tables() -> None:
             )
             cursor.execute(
                 """
-                CREATE TABLE IF NOT EXISTS users (
-                    id SERIAL PRIMARY KEY,
-                    username VARCHAR(100) NOT NULL UNIQUE,
-                    password_hash VARCHAR(256) NOT NULL,
-                    name VARCHAR(200) NOT NULL,
-                    role VARCHAR(50) NOT NULL DEFAULT 'employee',
-                    created_at VARCHAR(100)
-                )
-                """
-            )
-            cursor.execute(
-                """
-                CREATE TABLE IF NOT EXISTS employee_plans (
-                    id SERIAL PRIMARY KEY,
-                    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
-                    month INTEGER NOT NULL,
-                    year INTEGER NOT NULL,
-                    calls_target INTEGER NOT NULL DEFAULT 0,
-                    registrations_target INTEGER NOT NULL DEFAULT 0,
-                    created_at VARCHAR(100),
-                    updated_at VARCHAR(100),
-                    UNIQUE(user_id, month, year)
-                )
-                """
-            )
-            cursor.execute(
-                """
                 CREATE TABLE IF NOT EXISTS call_logs (
                     id SERIAL PRIMARY KEY,
                     user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
@@ -144,21 +151,16 @@ def init_catalog_tables() -> None:
             )
             cursor.execute(
                 """
-                CREATE TABLE IF NOT EXISTS parsed_leads (
+                CREATE TABLE IF NOT EXISTS employee_plans (
                     id SERIAL PRIMARY KEY,
-                    name VARCHAR(300) NOT NULL,
-                    category VARCHAR(200),
-                    city VARCHAR(100),
-                    contacts TEXT,
-                    need_description TEXT,
-                    query VARCHAR(200),
-                    region VARCHAR(100),
-                    status VARCHAR(50) DEFAULT 'новый',
-                    source VARCHAR(100) DEFAULT 'manual',
-                    assigned_to INTEGER REFERENCES users(id) ON DELETE SET NULL,
-                    call_count INTEGER DEFAULT 0,
+                    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+                    month INTEGER NOT NULL,
+                    year INTEGER NOT NULL,
+                    calls_target INTEGER NOT NULL DEFAULT 0,
+                    registrations_target INTEGER NOT NULL DEFAULT 0,
                     created_at VARCHAR(100),
-                    updated_at VARCHAR(100)
+                    updated_at VARCHAR(100),
+                    UNIQUE(user_id, month, year)
                 )
                 """
             )
