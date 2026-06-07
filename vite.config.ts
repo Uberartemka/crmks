@@ -14,6 +14,6 @@ export default defineConfig({
     },
   },
   preview: {
-    allowedHosts: ['crmks-production.up.railway.app'],
+    allowedHosts: true,
   },
 })
