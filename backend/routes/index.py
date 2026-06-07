@@ -264,6 +264,9 @@ def register_routes(app) -> None:
             db.commit()
         return {"applied": done, "errors": errors}
 
+    # Debug endpoint (check env vars)
+    app.include_router(debug_router)
+
     # Startup hooks (scheduler) + middleware (rate limiter)
     from startup.scheduler_startup import register_scheduler_startup
     from rate_limiter import register_rate_limiter
