@@ -2,8 +2,13 @@ import axios, { AxiosError, type InternalAxiosRequestConfig, type AxiosResponse 
 
 const TOKEN_KEY = 'ksvrn_token'
 
+const API_BASE_URL =
+  window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+    ? import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+    : 'https://crmks-production-7ae6.up.railway.app'
+
 export const api = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL || '/api',
+  baseURL: API_BASE_URL,
   timeout: 30000,
 })
 
