@@ -1,46 +1,85 @@
+"""
+Token store with Redis + PostgreSQL fallback.
+
+On Railway there is no Redis, so we fall back to storing tokens in the
+`auth_tokens` table in PostgreSQL.  This way login and auth work everywhere.
+"""
+
 import asyncio
 import logging
 import os
+from datetime import datetime
 from typing import Optional
 
 import redis as redis_sync
 import redis.asyncio as aioredis
 
+from db import get_db, q, _use_pg
 
 # --- Config ---
 REDIS_URL = os.getenv("REDIS_URL", "redis://127.0.0.1:6379/0")
 TOKEN_TTL_SECONDS = int(os.getenv("TOKEN_TTL_SECONDS", "86400"))
 REDIS_INIT_TIMEOUT_SEC = float(os.getenv("REDIS_INIT_TIMEOUT_SEC", "3.0"))
-REDIS_FAIL_FAST = int(os.getenv("REDIS_FAIL_FAST", "1"))
+REDIS_FAIL_FAST = int(os.getenv("REDIS_FAIL_FAST", "0"))  # default 0 — don't crash without Redis
 
 # token -> user_id
 _token_prefix = "token:"
 
-
 _redis_async: Optional[aioredis.Redis] = None
 _redis_sync: Optional[redis_sync.Redis] = None
 _lock = asyncio.Lock()
+
+_use_fallback = False  # True → use DB table instead of Redis
+
+logger = logging.getLogger("HHB_B2B")
 
 
 def _key(token: str) -> str:
     return f"{_token_prefix}{token}"
 
 
+def _ensure_auth_tokens_table() -> None:
+    """Create auth_tokens table if it doesn't exist (PG fallback)."""
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        if _use_pg:
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS auth_tokens (
+                    token_hash VARCHAR(64) PRIMARY KEY,
+                    user_id INTEGER NOT NULL,
+                    expires_at TIMESTAMP NOT NULL
+                )
+            """)
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_auth_tokens_expires_at
+                ON auth_tokens (expires_at)
+            """)
+        else:
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS auth_tokens (
+                    token_hash TEXT PRIMARY KEY,
+                    user_id INTEGER NOT NULL,
+                    expires_at TEXT NOT NULL
+                )
+            """)
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        logger.warning(f"[token_store] Cannot create auth_tokens table: {e}")
+
+
 async def init_token_store() -> None:
     """
-    Инициализация Redis token_store.
-
-    По умолчанию (REDIS_FAIL_FAST=1) — пробрасываем ошибку при недоступности Redis.
-    Если REDIS_FAIL_FAST=0 — сервер стартует без token_store (для локальных smoke/DEV),
-    но endpoints, требующие user-token auth, будут недоступны.
+    Initialize token store — try Redis first, fall back to PostgreSQL table.
     """
-    global _redis_async, _redis_sync
+    global _redis_async, _redis_sync, _use_fallback
     async with _lock:
         if _redis_async is not None and _redis_sync is not None:
             return
 
+        # Try Redis
         try:
-            # async client
             _redis_async = aioredis.from_url(
                 REDIS_URL,
                 decode_responses=True,
@@ -49,7 +88,6 @@ async def init_token_store() -> None:
             )
             await asyncio.wait_for(_redis_async.ping(), timeout=REDIS_INIT_TIMEOUT_SEC)
 
-            # sync client
             _redis_sync = redis_sync.Redis.from_url(
                 REDIS_URL,
                 decode_responses=True,
@@ -57,15 +95,15 @@ async def init_token_store() -> None:
                 socket_timeout=REDIS_INIT_TIMEOUT_SEC,
             )
             await asyncio.wait_for(asyncio.to_thread(_redis_sync.ping), timeout=REDIS_INIT_TIMEOUT_SEC)
+
+            _use_fallback = False
+            logger.info("[token_store] Redis connected — using Redis token store.")
+            return
+
         except Exception as e:
-            if REDIS_FAIL_FAST == 1:
-                raise
+            logger.warning(f"[token_store] Redis unavailable: {e}")
 
-            logging.getLogger("HHB_B2B").warning(
-                f"[token_store] Redis недоступен, пропускаем init (fail_fast=0): {e}"
-            )
-
-            # cleanup partially created clients
+            # cleanup
             try:
                 if _redis_async is not None:
                     await _redis_async.aclose()
@@ -79,7 +117,11 @@ async def init_token_store() -> None:
 
             _redis_async = None
             _redis_sync = None
-            return
+
+        # Fallback: use DB table
+        _use_fallback = True
+        _ensure_auth_tokens_table()
+        logger.info("[token_store] Using PostgreSQL fallback for token storage.")
 
 
 async def close_token_store() -> None:
@@ -87,77 +129,162 @@ async def close_token_store() -> None:
     if _redis_async is not None:
         await _redis_async.aclose()
         _redis_async = None
-
     if _redis_sync is not None:
-        # redis-py sync close
         await asyncio.to_thread(_redis_sync.close)
         _redis_sync = None
 
 
-# -------------------------
-# Async API
-# -------------------------
+# ──────────────────────────────────────────
+#  Internal DB helpers (sync, used by login)
+# ──────────────────────────────────────────
+
+def _db_set_token(token: str, user_id: int) -> None:
+    import hashlib
+    th = hashlib.sha256(token.encode()).hexdigest()
+    expires_at = datetime.now().isoformat() if not _use_pg else None
+    if _use_pg:
+        from datetime import timedelta
+        expires_at = datetime.now() + timedelta(seconds=TOKEN_TTL_SECONDS)
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute(
+            q("""
+                INSERT INTO auth_tokens (token_hash, user_id, expires_at)
+                VALUES (%s, %s, %s)
+                ON CONFLICT (token_hash) DO UPDATE
+                SET user_id = EXCLUDED.user_id, expires_at = EXCLUDED.expires_at
+            """),
+            (th, user_id, expires_at),
+        )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        raise RuntimeError(f"Cannot store token in DB: {e}")
+
+
+def _db_get_token(token: str) -> Optional[int]:
+    import hashlib
+    th = hashlib.sha256(token.encode()).hexdigest()
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        if _use_pg:
+            cursor.execute(
+                "SELECT user_id FROM auth_tokens WHERE token_hash = %s AND expires_at > NOW()",
+                (th,),
+            )
+        else:
+            now = datetime.now().isoformat()
+            cursor.execute(
+                "SELECT user_id FROM auth_tokens WHERE token_hash = %s AND expires_at > %s",
+                (th, now),
+            )
+        row = cursor.fetchone()
+        conn.close()
+        return int(row[0]) if row else None
+    except Exception:
+        return None
+
+
+def _db_delete_token(token: str) -> None:
+    import hashlib
+    th = hashlib.sha256(token.encode()).hexdigest()
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute(q("DELETE FROM auth_tokens WHERE token_hash = %s"), (th,))
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+
+
+def _db_refresh_token(token: str) -> None:
+    import hashlib
+    th = hashlib.sha256(token.encode()).hexdigest()
+    if _use_pg:
+        from datetime import timedelta
+        expires_at = datetime.now() + timedelta(seconds=TOKEN_TTL_SECONDS)
+        try:
+            conn = get_db()
+            cursor = conn.cursor()
+            cursor.execute("UPDATE auth_tokens SET expires_at = %s WHERE token_hash = %s", (expires_at, th))
+            conn.commit()
+            conn.close()
+        except Exception:
+            pass
+
+
+# ──────────────────────────────────────────
+#  Public API
+# ──────────────────────────────────────────
+
 async def set_token(token: str, user_id: int) -> None:
-    if _redis_async is None:
-        raise RuntimeError("token_store is not initialized")
-    await _redis_async.setex(_key(token), TOKEN_TTL_SECONDS, str(user_id))
+    if not _use_fallback and _redis_async is not None:
+        await _redis_async.setex(_key(token), TOKEN_TTL_SECONDS, str(user_id))
+        return
+    _db_set_token(token, user_id)
 
 
 async def get_token(token: str) -> Optional[int]:
-    if _redis_async is None:
-        return None
-    raw = await _redis_async.get(_key(token))
-    if raw is None:
-        return None
-    try:
-        return int(raw)
-    except ValueError:
-        return None
+    if not _use_fallback and _redis_async is not None:
+        raw = await _redis_async.get(_key(token))
+        if raw is None:
+            return None
+        try:
+            return int(raw)
+        except ValueError:
+            return None
+    return _db_get_token(token)
 
 
 async def delete_token(token: str) -> None:
-    if _redis_async is None:
-        raise RuntimeError("token_store is not initialized")
-    await _redis_async.delete(_key(token))
+    if not _use_fallback and _redis_async is not None:
+        await _redis_async.delete(_key(token))
+        return
+    _db_delete_token(token)
 
 
 async def refresh_token(token: str) -> None:
-    """
-    Sliding expiry: продлеваем TTL при активности.
-    """
-    if _redis_async is None:
+    if not _use_fallback and _redis_async is not None:
+        await _redis_async.expire(_key(token), TOKEN_TTL_SECONDS)
         return
-    await _redis_async.expire(_key(token), TOKEN_TTL_SECONDS)
+    _db_refresh_token(token)
 
 
-# -------------------------
-# Sync API
-# -------------------------
+# ──────────────────────────────────────────
+#  Sync API (called by sync FastAPI routes)
+# ──────────────────────────────────────────
+
 def set_token_sync(token: str, user_id: int) -> None:
-    if _redis_sync is None:
-        raise RuntimeError("token_store is not initialized")
-    _redis_sync.setex(_key(token), TOKEN_TTL_SECONDS, str(user_id))
+    if not _use_fallback and _redis_sync is not None:
+        _redis_sync.setex(_key(token), TOKEN_TTL_SECONDS, str(user_id))
+        return
+    _db_set_token(token, user_id)
 
 
 def get_token_sync(token: str) -> Optional[int]:
-    if _redis_sync is None:
-        return None
-    raw = _redis_sync.get(_key(token))
-    if raw is None:
-        return None
-    try:
-        return int(raw)
-    except ValueError:
-        return None
+    if not _use_fallback and _redis_sync is not None:
+        raw = _redis_sync.get(_key(token))
+        if raw is None:
+            return None
+        try:
+            return int(raw)
+        except ValueError:
+            return None
+    return _db_get_token(token)
 
 
 def delete_token_sync(token: str) -> None:
-    if _redis_sync is None:
-        raise RuntimeError("token_store is not initialized")
-    _redis_sync.delete(_key(token))
+    if not _use_fallback and _redis_sync is not None:
+        _redis_sync.delete(_key(token))
+        return
+    _db_delete_token(token)
 
 
 def refresh_token_sync(token: str) -> None:
-    if _redis_sync is None:
+    if not _use_fallback and _redis_sync is not None:
+        _redis_sync.expire(_key(token), TOKEN_TTL_SECONDS)
         return
-    _redis_sync.expire(_key(token), TOKEN_TTL_SECONDS)
+    _db_refresh_token(token)
