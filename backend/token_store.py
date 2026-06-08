@@ -48,8 +48,22 @@ def _ensure_auth_tokens_table() -> None:
                 CREATE TABLE IF NOT EXISTS auth_tokens (
                     token_hash VARCHAR(64) PRIMARY KEY,
                     user_id INTEGER NOT NULL,
-                    expires_at TIMESTAMP NOT NULL
+                    expires_at TIMESTAMPTZ NOT NULL
                 )
+            """)
+            # Миграция: обновить expires_at для старых записей (были без timezone)
+            cursor.execute("""
+                DO $$
+                BEGIN
+                    IF EXISTS (
+                        SELECT 1 FROM information_schema.columns
+                        WHERE table_name = 'auth_tokens' AND column_name = 'expires_at'
+                          AND data_type = 'timestamp without time zone'
+                    ) THEN
+                        ALTER TABLE auth_tokens ALTER COLUMN expires_at TYPE TIMESTAMPTZ
+                            USING expires_at AT TIME ZONE 'UTC';
+                    END IF;
+                END $$;
             """)
             cursor.execute("""
                 CREATE INDEX IF NOT EXISTS idx_auth_tokens_expires_at
@@ -141,10 +155,11 @@ async def close_token_store() -> None:
 def _db_set_token(token: str, user_id: int) -> None:
     import hashlib
     th = hashlib.sha256(token.encode()).hexdigest()
-    expires_at = datetime.now().isoformat() if not _use_pg else None
     if _use_pg:
-        from datetime import timedelta
-        expires_at = datetime.now() + timedelta(seconds=TOKEN_TTL_SECONDS)
+        from datetime import timezone, timedelta
+        expires_at = datetime.now(timezone.utc) + timedelta(seconds=TOKEN_TTL_SECONDS)
+    else:
+        expires_at = datetime.now().isoformat()
     try:
         conn = get_db()
         cursor = conn.cursor()
@@ -207,8 +222,8 @@ def _db_refresh_token(token: str) -> None:
     import hashlib
     th = hashlib.sha256(token.encode()).hexdigest()
     if _use_pg:
-        from datetime import timedelta
-        expires_at = datetime.now() + timedelta(seconds=TOKEN_TTL_SECONDS)
+        from datetime import timezone, timedelta
+        expires_at = datetime.now(timezone.utc) + timedelta(seconds=TOKEN_TTL_SECONDS)
         try:
             conn = get_db()
             cursor = conn.cursor()
