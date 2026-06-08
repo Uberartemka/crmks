@@ -172,10 +172,15 @@ async function sendEmail() {
   await refreshProposal()
 }
 
+const API_BASE = import.meta.env.VITE_API_BASE_URL || (
+  window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+    ? 'http://localhost:8000'
+    : 'https://crmks-production-7ae6.up.railway.app'
+)
+
 function openPublicLink() {
   if (!currentProposalId.value) return
-  const origin = window.location.origin
-  window.open(`${origin}/kp/${currentProposalId.value}`, '_blank')
+  window.open(`${API_BASE}/kp/${currentProposalId.value}`, '_blank')
 }
 
 function sleep(ms: number) {
