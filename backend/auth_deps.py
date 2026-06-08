@@ -39,11 +39,8 @@ def get_current_user(request: Request) -> dict:
 async def get_current_user_async(request: Request) -> dict:
     """
     Async-вариант для non-blocking запросов к пользователю.
-    Сохраняем sync get_current_user() чтобы не ломать прямые вызовы в AI-роутах.
+    При любой ошибке async пула откатывается на sync.
     """
-    if not _use_pg:
-        return await asyncio.to_thread(get_current_user, request)
-
     auth_header = request.headers.get("Authorization", "")
     if not auth_header.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Unauthorized")
@@ -55,12 +52,21 @@ async def get_current_user_async(request: Request) -> dict:
 
     refresh_token_sync(token)
 
-    row = await async_fetch_one(
-        q("SELECT id, username, name, role FROM users WHERE id = %s"),
-        (user_id,),
-    )
-    if not row:
-        raise HTTPException(status_code=401, detail="User not found")
+    if _use_pg:
+        try:
+            row = await async_fetch_one(
+                q("SELECT id, username, name, role FROM users WHERE id = %s"),
+                (user_id,),
+            )
+            if not row:
+                raise HTTPException(status_code=401, detail="User not found")
+            return {"id": row[0], "username": row[1], "name": row[2], "role": row[3]}
+        except RuntimeError:
+            # Async pool not ready — fallback to sync
+            pass
+        except Exception:
+            # Any other async error — fallback to sync
+            pass
 
-    # asyncpg.Record is indexable
-    return {"id": row[0], "username": row[1], "name": row[2], "role": row[3]}
+    # Fallback: sync path (works even if async pool is broken/not initialized)
+    return get_current_user(request)
