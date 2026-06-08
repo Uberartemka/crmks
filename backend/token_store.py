@@ -182,8 +182,11 @@ def _db_get_token(token: str) -> Optional[int]:
             )
         row = cursor.fetchone()
         conn.close()
+        if row is None:
+            logger.warning(f"[token_store] Token not found or expired: hash={th[:16]}...")
         return int(row[0]) if row else None
-    except Exception:
+    except Exception as e:
+        logger.error(f"[token_store] _db_get_token error: {e}")
         return None
 
 
