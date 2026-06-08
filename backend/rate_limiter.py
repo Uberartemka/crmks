@@ -3,28 +3,21 @@ from __future__ import annotations
 import logging
 import os
 import time
-from typing import DefaultDict, List, Optional
+from collections import defaultdict
+from typing import Dict, List, Optional, Tuple
 
 from fastapi import Request, Response
 from fastapi.responses import JSONResponse
 from fastapi import FastAPI
-import redis.asyncio as aioredis
 
 logger = logging.getLogger("HHB_B2B")
 
-# ---- Redis config ----
-REDIS_URL = os.getenv("REDIS_URL", "redis://127.0.0.1:6379/0")
-REDIS_FAIL_FAST = int(os.getenv("REDIS_FAIL_FAST", "0"))  # default 0 — fail-open (allow requests without Redis)
-REDIS_INIT_TIMEOUT_SEC = float(os.getenv("REDIS_INIT_TIMEOUT_SEC", "3.0"))
-
 # ---- Rate limit config ----
 WINDOW_SECONDS = 60
-RATE_PREFIX = "rate_limiter:"
 
-
-_redis: Optional[aioredis.Redis] = None
-_redis_init_lock = False
-_redis_failed = False  # если True — не пытаемся переподключиться каждый раз
+# ---- In-memory store (no Redis dependency) ----
+# key: ip:path -> list of timestamps
+_store: Dict[str, List[float]] = defaultdict(list)
 
 
 def _get_rate_limit(path: str) -> int:
@@ -38,7 +31,6 @@ def _get_rate_limit(path: str) -> int:
 
 
 def _extract_client_ip(request: Request) -> str:
-    # Prefer proxy headers (requires that your proxy is trusted and configured)
     x_forwarded_for = request.headers.get("X-Forwarded-For")
     if x_forwarded_for:
         return x_forwarded_for.split(",")[0].strip()
@@ -50,43 +42,20 @@ def _extract_client_ip(request: Request) -> str:
     return request.client.host if request.client else "unknown"
 
 
-async def _get_redis() -> Optional[aioredis.Redis]:
-    global _redis, _redis_init_lock, _redis_failed
+def _check_rate_limit(key: str, limit: int) -> Tuple[bool, int]:
+    """Returns (is_blocked, current_count)."""
+    now = time.time()
+    window_start = now - WINDOW_SECONDS
 
-    if _redis is not None:
-        return _redis
+    timestamps = _store[key]
+    # Filter out old entries
+    timestamps[:] = [t for t in timestamps if t > window_start]
 
-    if _redis_failed:
-        return None
+    if len(timestamps) >= limit:
+        return True, len(timestamps)
 
-    if _redis_init_lock:
-        for _ in range(10):
-            if _redis is not None:
-                return _redis
-            await asyncio_sleep(0.05)
-        return None  # timeout — skip rate limiting
-
-    _redis_init_lock = True
-    try:
-        _redis = aioredis.from_url(
-            REDIS_URL,
-            decode_responses=True,
-            socket_connect_timeout=REDIS_INIT_TIMEOUT_SEC,
-            socket_timeout=REDIS_INIT_TIMEOUT_SEC,
-        )
-        await _redis.ping()
-        return _redis
-    except Exception as e:
-        logger.warning(f"[RateLimiter] Redis unavailable — rate limiting disabled: {e}")
-        _redis_failed = True
-        return None
-    finally:
-        _redis_init_lock = False
-
-
-async def asyncio_sleep(seconds: float) -> None:
-    import asyncio
-    await asyncio.sleep(seconds)
+    timestamps.append(now)
+    return False, len(timestamps) + 1
 
 
 def register_rate_limiter(app: FastAPI) -> None:
@@ -98,27 +67,14 @@ def register_rate_limiter(app: FastAPI) -> None:
 
         limit = _get_rate_limit(path)
         client_ip = _extract_client_ip(request)
-        key = f"{RATE_PREFIX}{client_ip}:{path}"
-
-        redis = await _get_redis()
-        if redis is None:
-            # No Redis available — skip rate limiting (fail-open)
-            return await call_next(request)
+        key = f"{client_ip}:{path}"
 
         try:
-            script = """
-            local current = redis.call('INCR', KEYS[1])
-            if current == 1 then
-              redis.call('EXPIRE', KEYS[1], ARGV[1])
-            end
-            return current
-            """
-            current = await redis.eval(script, 1, key, WINDOW_SECONDS)
-            current_int = int(current)
+            is_blocked, current = _check_rate_limit(key, limit)
 
-            if current_int > limit:
+            if is_blocked:
                 logger.warning(
-                    f"[Rate Limit Blocked] IP {client_ip} превысил лимит на {path} ({limit} запр./мин). current={current_int}"
+                    f"[Rate Limit Blocked] IP {client_ip} превысил лимит на {path} ({limit} запр./мин). current={current}"
                 )
                 return JSONResponse(
                     status_code=429,
@@ -129,12 +85,7 @@ def register_rate_limiter(app: FastAPI) -> None:
                 )
 
         except Exception as e:
-            logger.error(f"[RateLimiter] Redis error: {e}")
-            if REDIS_FAIL_FAST == 1:
-                return JSONResponse(
-                    status_code=503,
-                    content={"detail": "Rate limiter temporarily unavailable."},
-                )
+            logger.error(f"[RateLimiter] Error: {e}")
             return await call_next(request)
 
         return await call_next(request)

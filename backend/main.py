@@ -18,13 +18,7 @@ async def on_startup() -> None:
     startup_init_db()
     # _init_queue_manager()  # disabled on Railway — queue requires PostgreSQL + Chromium
     await init_async_pool()
-    # Redis-dependent services: graceful degrade if Redis unavailable
-    try:
-        await init_token_store()
-    except Exception as e:
-        print(f"[WARN] token_store init skipped — Redis unavailable: {e}")
-    # await init_async_pool()   # задача 1
-    # await init_token_store()  # задача 3
+    await init_token_store()
 
 
 async def on_shutdown() -> None:
