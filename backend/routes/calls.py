@@ -19,32 +19,18 @@ def list_calls(current_user: dict = Depends(get_current_user)):
     conn = get_db()
     cursor = conn.cursor()
 
-    if current_user["role"] in ("admin", "manager"):
-        cursor.execute(
-            q(
-                """
-                SELECT c.id, c.user_id, u.name, c.client_id, c.lead_id, c.client_name, c.from_number, c.to_number, c.direction,
-                       c.call_date, c.status, c.duration, c.recording_url, c.notes, c.is_new_registration, c.bitrix_call_id, c.created_at, c.updated_at
-                FROM call_logs c
-                JOIN users u ON u.id = c.user_id
-                ORDER BY c.call_date DESC, c.created_at DESC
-                """
-            )
+    # DISABLED_FOR_PRESENTATION — always all calls (was role check)
+    cursor.execute(
+        q(
+            """
+            SELECT c.id, c.user_id, u.name, c.client_id, c.lead_id, c.client_name, c.from_number, c.to_number, c.direction,
+                   c.call_date, c.status, c.duration, c.recording_url, c.notes, c.is_new_registration, c.bitrix_call_id, c.created_at, c.updated_at
+            FROM call_logs c
+            JOIN users u ON u.id = c.user_id
+            ORDER BY c.call_date DESC, c.created_at DESC
+            """
         )
-    else:
-        cursor.execute(
-            q(
-                """
-                SELECT c.id, c.user_id, u.name, c.client_id, c.lead_id, c.client_name, c.from_number, c.to_number, c.direction,
-                       c.call_date, c.status, c.duration, c.recording_url, c.notes, c.is_new_registration, c.bitrix_call_id, c.created_at, c.updated_at
-                FROM call_logs c
-                JOIN users u ON u.id = c.user_id
-                WHERE c.user_id = %s
-                ORDER BY c.call_date DESC, c.created_at DESC
-                """
-            ),
-            (current_user["id"],),
-        )
+    )
 
     rows = cursor.fetchall()
     conn.close()
@@ -133,13 +119,7 @@ def update_call(call_id: int, data: CallLogCreate, current_user: dict = Depends(
     conn = get_db()
     cursor = conn.cursor()
 
-    if current_user["role"] not in ("admin", "manager"):
-        cursor.execute(q("SELECT user_id FROM call_logs WHERE id = %s"), (call_id,))
-        row = cursor.fetchone()
-        if not row or row[0] != current_user["id"]:
-            conn.close()
-            raise HTTPException(status_code=403, detail="Forbidden")
-
+    # DISABLED_FOR_PRESENTATION — role check removed
     now = datetime.now().isoformat()
     cursor.execute(
         q(
@@ -180,13 +160,7 @@ def delete_call(call_id: int, current_user: dict = Depends(get_current_user)):
     conn = get_db()
     cursor = conn.cursor()
 
-    if current_user["role"] not in ("admin", "manager"):
-        cursor.execute(q("SELECT user_id FROM call_logs WHERE id = %s"), (call_id,))
-        row = cursor.fetchone()
-        if not row or row[0] != current_user["id"]:
-            conn.close()
-            raise HTTPException(status_code=403, detail="Forbidden")
-
+    # DISABLED_FOR_PRESENTATION — role check removed
     cursor.execute(q("DELETE FROM call_logs WHERE id = %s"), (call_id,))
     conn.commit()
     conn.close()

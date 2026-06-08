@@ -147,7 +147,8 @@ def list_leads(
         },
         "required": ["lead_ids", "manager_id"]
     },
-    roles=["admin", "manager"],
+    # DISABLED_FOR_PRESENTATION — was roles=["admin", "manager"]
+    roles=["admin", "manager", "employee"],
 )
 def assign_leads_bulk(ctx, lead_ids: list[int], manager_id: int) -> dict:
     if not lead_ids:
