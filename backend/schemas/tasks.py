@@ -75,6 +75,7 @@ class TaskCreateRequest(BaseModel):
     assignee_id: Optional[int] = None
     client_id: Optional[int] = None
     call_id: Optional[int] = None
+    estimated_minutes: Optional[int] = None
 
     class Config:
         extra = "forbid"
@@ -88,6 +89,7 @@ class TaskUpdateRequest(BaseModel):
     due_date: Optional[str] = None
     assignee_id: Optional[int] = None
     client_id: Optional[int] = None
+    estimated_minutes: Optional[int] = None
 
     class Config:
         extra = "forbid"

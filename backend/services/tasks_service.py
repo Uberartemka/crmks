@@ -133,14 +133,15 @@ async def create_task_endpoint(
     assignee_id = body.get("assignee_id") or current_user["id"]
     client_id = body.get("client_id")
     call_id = body.get("call_id")
+    estimated_minutes = body.get("estimated_minutes")
 
     now = datetime.now().isoformat()
 
     if _use_pg:
         new_id = await async_fetch_val(
             """
-            INSERT INTO tasks (assigned_to, created_by, lead_id, call_id, title, description, priority, due_date, status, source, created_at, updated_at)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            INSERT INTO tasks (assigned_to, created_by, lead_id, call_id, title, description, priority, due_date, estimated_minutes, status, source, created_at, updated_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING id
             """,
             (
@@ -152,6 +153,7 @@ async def create_task_endpoint(
                 description,
                 priority,
                 due_date,
+                estimated_minutes,
                 status,
                 "manual",
                 now,
@@ -176,6 +178,7 @@ async def create_task_endpoint(
             "assignee_name": assignee_name,
             "client_id": client_id,
             "call_id": call_id,
+            "estimated_minutes": estimated_minutes,
             "tags": [],
             "created_at": now,
             "updated_at": now,
@@ -188,8 +191,8 @@ async def create_task_endpoint(
     cursor.execute(
         q(
             """
-            INSERT INTO tasks (assigned_to, created_by, lead_id, call_id, title, description, priority, due_date, status, source, created_at, updated_at)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            INSERT INTO tasks (assigned_to, created_by, lead_id, call_id, title, description, priority, due_date, estimated_minutes, status, source, created_at, updated_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """
         ),
         (
@@ -201,6 +204,7 @@ async def create_task_endpoint(
             description,
             priority,
             due_date,
+            estimated_minutes,
             status,
             "manual",
             now,
@@ -233,6 +237,7 @@ async def create_task_endpoint(
         "assignee_name": assignee_name,
         "client_id": client_id,
         "call_id": call_id,
+        "estimated_minutes": estimated_minutes,
         "tags": [],
         "created_at": now,
         "updated_at": now,
@@ -267,6 +272,7 @@ async def update_task_endpoint(
             "due_date": "due_date",
             "assignee_id": "assigned_to",
             "client_id": "lead_id",
+            "estimated_minutes": "estimated_minutes",
         }
 
         for k, v in body.items():
@@ -340,6 +346,7 @@ async def update_task_endpoint(
         "due_date": "due_date",
         "assignee_id": "assigned_to",
         "client_id": "lead_id",
+        "estimated_minutes": "estimated_minutes",
     }
 
     for k, v in body.items():
