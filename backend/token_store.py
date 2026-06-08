@@ -118,7 +118,7 @@ async def init_token_store() -> None:
             _redis_async = None
             _redis_sync = None
 
-        # Fallback: use DB table
+        # Fallback: use DB table (always runs if Redis unavailable)
         _use_fallback = True
         _ensure_auth_tokens_table()
         logger.info("[token_store] Using PostgreSQL fallback for token storage.")
