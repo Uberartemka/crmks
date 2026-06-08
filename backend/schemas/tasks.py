@@ -78,7 +78,7 @@ class TaskCreateRequest(BaseModel):
     estimated_minutes: Optional[int] = None
 
     class Config:
-        extra = "forbid"
+        extra = "allow"
 
 
 class TaskUpdateRequest(BaseModel):
@@ -92,7 +92,7 @@ class TaskUpdateRequest(BaseModel):
     estimated_minutes: Optional[int] = None
 
     class Config:
-        extra = "forbid"
+        extra = "allow"
 
     @model_validator(mode="after")
     def validate_not_empty(self) -> "TaskUpdateRequest":
