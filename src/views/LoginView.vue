@@ -11,6 +11,11 @@ const USE_MOCKS = import.meta.env.VITE_USE_MOCKS === 'true'
 
 async function submit() {
   err.value = ''
+
+  // Сбрасываем старый токен перед входом (чтобы не было закешированной сессии)
+  localStorage.removeItem('ksvrn_token')
+  localStorage.removeItem('ksvrn_user')
+
   try {
     if (USE_MOCKS) {
       const role = username.value.startsWith('admin') ? 'admin'
@@ -35,12 +40,15 @@ async function submit() {
 <template>
   <div class="h-full flex items-center justify-center bg-slate-100">
     <form class="card p-6 w-80 space-y-3" @submit.prevent="submit">
-      <h1 class="text-xl font-bold">Вход HHB</h1>
+      <h1 class="text-xl font-bold">Вход HHB B2B</h1>
       <p class="text-xs text-slate-500">
-        Dev: введи <code>admin</code>, <code>manager1</code> или <code>emp1</code>
+        Для презентации: <code>admin / admin</code> или <code>admin / admin123</code>
       </p>
-      <input v-model="username" class="input" placeholder="username" />
-      <input v-model="password" type="password" class="input" placeholder="пароль" />
+      <p class="text-xs text-slate-500">
+        Демо: <code>manager1 / pass123</code>
+      </p>
+      <input v-model="username" class="input" placeholder="Логин" />
+      <input v-model="password" type="password" class="input" placeholder="Пароль" />
       <p v-if="err" class="text-xs text-red-600">{{ err }}</p>
       <button class="btn-primary w-full">Войти</button>
     </form>

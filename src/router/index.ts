@@ -21,6 +21,13 @@ const routes: RouteRecordRaw[] = [
       { path: 'calls', component: () => import('@/views/admin/CallsView.vue') },
       { path: 'calendar', component: () => import('@/views/CalendarPage.vue') },
       { path: 'personnel', component: () => import('@/views/admin/PersonnelView.vue') },
+      // Admin sees all site pages for presentation
+      { path: 'catalog', component: () => import('@/views/CatalogView.vue') },
+      { path: 'leads', component: () => import('@/views/manager/LeadsView.vue') },
+      { path: 'orders', component: () => import('@/views/client/OrdersView.vue') },
+      { path: 'machinery', component: () => import('@/views/client/MachineryView.vue') },
+      { path: 'calculator', component: () => import('@/views/client/CalculatorView.vue') },
+      { path: 'defects', component: () => import('@/views/client/DefectsView.vue') },
     ],
   },
 

@@ -14,7 +14,7 @@ logger = logging.getLogger("HHB_B2B")
 
 # ---- Redis config ----
 REDIS_URL = os.getenv("REDIS_URL", "redis://127.0.0.1:6379/0")
-REDIS_FAIL_FAST = int(os.getenv("REDIS_FAIL_FAST", "1"))
+REDIS_FAIL_FAST = int(os.getenv("REDIS_FAIL_FAST", "0"))  # default 0 — fail-open (allow requests without Redis)
 REDIS_INIT_TIMEOUT_SEC = float(os.getenv("REDIS_INIT_TIMEOUT_SEC", "3.0"))
 
 # ---- Rate limit config ----
@@ -24,6 +24,7 @@ RATE_PREFIX = "rate_limiter:"
 
 _redis: Optional[aioredis.Redis] = None
 _redis_init_lock = False
+_redis_failed = False  # если True — не пытаемся переподключиться каждый раз
 
 
 def _get_rate_limit(path: str) -> int:
@@ -49,20 +50,22 @@ def _extract_client_ip(request: Request) -> str:
     return request.client.host if request.client else "unknown"
 
 
-async def _get_redis() -> aioredis.Redis:
-    global _redis, _redis_init_lock
+async def _get_redis() -> Optional[aioredis.Redis]:
+    global _redis, _redis_init_lock, _redis_failed
 
     if _redis is not None:
         return _redis
 
-    # simple single-flight (good enough for this middleware)
+    if _redis_failed:
+        return None
+
     if _redis_init_lock:
-        # wait a bit for another request to init
         for _ in range(10):
             if _redis is not None:
                 return _redis
             await asyncio_sleep(0.05)
-        # fallback: continue and try
+        return None  # timeout — skip rate limiting
+
     _redis_init_lock = True
     try:
         _redis = aioredis.from_url(
@@ -73,12 +76,15 @@ async def _get_redis() -> aioredis.Redis:
         )
         await _redis.ping()
         return _redis
+    except Exception as e:
+        logger.warning(f"[RateLimiter] Redis unavailable — rate limiting disabled: {e}")
+        _redis_failed = True
+        return None
     finally:
         _redis_init_lock = False
 
 
 async def asyncio_sleep(seconds: float) -> None:
-    # local tiny helper to avoid extra imports in hot path
     import asyncio
     await asyncio.sleep(seconds)
 
@@ -92,17 +98,14 @@ def register_rate_limiter(app: FastAPI) -> None:
 
         limit = _get_rate_limit(path)
         client_ip = _extract_client_ip(request)
-
-        # eviction key with TTL (evicts itself after WINDOW_SECONDS)
         key = f"{RATE_PREFIX}{client_ip}:{path}"
 
-        try:
-            redis = await _get_redis()
+        redis = await _get_redis()
+        if redis is None:
+            # No Redis available — skip rate limiting (fail-open)
+            return await call_next(request)
 
-            # Atomic rate limiting:
-            # - INCR key
-            # - if first hit => EXPIRE key for WINDOW_SECONDS
-            # Use Lua to avoid race between INCR and EXPIRE
+        try:
             script = """
             local current = redis.call('INCR', KEYS[1])
             if current == 1 then
@@ -126,15 +129,12 @@ def register_rate_limiter(app: FastAPI) -> None:
                 )
 
         except Exception as e:
-            # On Redis failure:
-            # - fail-open if REDIS_FAIL_FAST=0
-            # - fail-closed otherwise (429 is better than 500? but limiter is unavailable => 503)
             logger.error(f"[RateLimiter] Redis error: {e}")
-            if REDIS_FAIL_FAST == 0:
-                return await call_next(request)
-            return JSONResponse(
-                status_code=503,
-                content={"detail": "Rate limiter temporarily unavailable."},
-            )
+            if REDIS_FAIL_FAST == 1:
+                return JSONResponse(
+                    status_code=503,
+                    content={"detail": "Rate limiter temporarily unavailable."},
+                )
+            return await call_next(request)
 
         return await call_next(request)

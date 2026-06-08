@@ -19,12 +19,18 @@ const menu = computed(() => {
     { to: `${base}/proposals`, label: 'Умное КП', icon: FileText },
     { to: `${base}/reports`, label: 'Отчеты', icon: BarChart3 },
     { to: `${base}/parser`, label: 'Парсер лидов', icon: Search },
+    { to: `${base}/leads`, label: 'Лиды', icon: Search },
     { to: `${base}/audit`, label: 'Чемоданчик', icon: Briefcase },
     { to: `${base}/clients`, label: 'База клиентов', icon: Users },
+    { to: `${base}/catalog`, label: 'Каталог товаров', icon: ShoppingCart },
     { to: `${base}/plans`, label: 'Планы', icon: ListChecks },
     { to: `${base}/calls`, label: 'Звонки', icon: Phone },
     { to: `${base}/calendar`, label: 'Календарь', icon: CalendarDays },
     { to: `${base}/personnel`, label: 'Персонал', icon: PersonStanding },
+    { to: `${base}/orders`, label: 'Заказы', icon: ShoppingCart },
+    { to: `${base}/machinery`, label: 'Оборудование', icon: Cog },
+    { to: `${base}/calculator`, label: 'ISO 281', icon: Calculator },
+    { to: `${base}/defects`, label: 'Дефектовка', icon: ClipboardList },
   ]
   if (auth.role === 'manager') return [
     ...common,

@@ -3,7 +3,7 @@
     "builder": "NIXPACKS"
   },
   "deploy": {
-    "startCommand": "node server.js",
+    "startCommand": "npx serve dist -l $PORT --cors",
     "restartPolicyType": "ON_FAILURE",
     "restartPolicyMaxRetries": 10
   }
