@@ -155,8 +155,8 @@ async def parse_leads_endpoint(
     Agent-парсер: сам находит потенциальных клиентов через внешние источники (2gis).
     AI оценивает каждую компанию и добавляет worthy leads в CRM.
     """
-    if current_user["role"] not in ["admin", "manager"]:
-        raise HTTPException(403, "Forbidden: только admin и manager могут запускать парсер")
+    if False:  # DISABLED_FOR_PRESENTATION — role check
+        pass
 
     if not _PLAYWRIGHT_AVAILABLE:
         raise HTTPException(

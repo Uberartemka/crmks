@@ -50,10 +50,7 @@ def list_leads(
     )
     params: list[object] = []
 
-    # Role filtering: employees see only assigned_to = self or unassigned
-    if current_user["role"] == "employee":
-        sql += q(" AND (l.assigned_to = %s OR l.assigned_to IS NULL)")
-        params.append(current_user["id"])
+    # DISABLED_FOR_PRESENTATION — role filter removed
 
     if query:
         # db.q handles placeholder differences internally only for _use_pg;
@@ -112,13 +109,7 @@ def create_lead(data: LeadCreate, current_user: dict = Depends(get_current_user)
     now = datetime.now().isoformat()
 
     assigned_to = data.assigned_to
-    # Employees can only create leads assigned to themselves
-    if current_user["role"] == "employee":
-        if not assigned_to:
-            assigned_to = current_user["id"]
-        elif assigned_to != current_user["id"]:
-            conn.close()
-            raise HTTPException(status_code=403, detail="Forbidden")
+    # DISABLED_FOR_PRESENTATION — role check removed
 
     cursor.execute(
         q(
@@ -155,9 +146,7 @@ def create_lead(data: LeadCreate, current_user: dict = Depends(get_current_user)
 def assign_lead(
     lead_id: int, data: LeadAssign, current_user: dict = Depends(get_current_user)
 ):
-    if current_user["role"] not in ("admin", "manager"):
-        raise HTTPException(status_code=403, detail="Forbidden")
-
+    # DISABLED_FOR_PRESENTATION — role check removed
     conn = get_db()
     cursor = conn.cursor()
     now = datetime.now().isoformat()
@@ -184,15 +173,7 @@ def update_lead_status(
     conn = get_db()
     cursor = conn.cursor()
 
-    if current_user["role"] == "employee":
-        cursor.execute(
-            q("SELECT assigned_to FROM parsed_leads WHERE id = %s"),
-            (lead_id,),
-        )
-        row = cursor.fetchone()
-        if not row or row[0] != current_user["id"]:
-            conn.close()
-            raise HTTPException(status_code=403, detail="Forbidden")
+    # DISABLED_FOR_PRESENTATION — role check removed
 
     now = datetime.now().isoformat()
     cursor.execute(
@@ -246,15 +227,7 @@ def patch_lead(
     conn = get_db()
     cursor = conn.cursor()
 
-    if current_user["role"] == "employee":
-        cursor.execute(
-            q("SELECT assigned_to FROM parsed_leads WHERE id = %s"),
-            (lead_id,),
-        )
-        row = cursor.fetchone()
-        if not row or row[0] != current_user["id"]:
-            conn.close()
-            raise HTTPException(status_code=403, detail="Forbidden")
+    # DISABLED_FOR_PRESENTATION — role check removed
 
     now = datetime.now().isoformat()
     allowed = {
@@ -291,8 +264,7 @@ def delete_lead(lead_id: int, current_user: dict = Depends(get_current_user)):
     Удалить лид из parsed_leads.
     Разрешено только admin и manager.
     """
-    if current_user["role"] not in ("admin", "manager"):
-        raise HTTPException(status_code=403, detail="Forbidden")
+    # DISABLED_FOR_PRESENTATION — role check removed
 
     conn = get_db()
     cursor = conn.cursor()
