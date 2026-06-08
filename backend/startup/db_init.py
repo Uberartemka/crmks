@@ -633,9 +633,10 @@ def seed_data() -> None:
             )
             logger.info(f"[Seed] Загружено {len(users)} пользователей.")
 
-        # Добавляем пользователя admin / admin, если его ещё нет
-        cursor.execute("SELECT COUNT(*) FROM users WHERE username = 'admin'")
-        if cursor.fetchone()[0] == 0:
+        # Гарантируем, что admin/admin работает (обновляем хеш если нужно)
+        cursor.execute("SELECT id, password_hash FROM users WHERE username = 'admin'")
+        row = cursor.fetchone()
+        if not row:
             now = datetime.now().isoformat()
             cursor.execute(
                 f"""
@@ -647,27 +648,29 @@ def seed_data() -> None:
             conn.commit()
             logger.info("[Seed] Добавлен admin/admin")
         else:
-            # Убедимся, что admin может заходить с обоими паролями — обновим хеш если нужно
-            cursor.execute("SELECT id, password_hash FROM users WHERE username = 'admin'")
-            row = cursor.fetchone()
-            if row:
-                existing_hash = row[1]
-                # Проверим, поддерживает ли существующий хеш пароль "admin"
-                from utils.auth_utils import verify_password
-                if not verify_password("admin", existing_hash):
-                    # Добавим отдельного юзера admin_present для входа admin/admin
-                    cursor.execute("SELECT COUNT(*) FROM users WHERE username = 'admin_present'")
-                    if cursor.fetchone()[0] == 0:
-                        now = datetime.now().isoformat()
-                        cursor.execute(
-                            f"""
-                            INSERT INTO users (username, password_hash, name, role, created_at)
-                            VALUES ({_ph(5)})
-                            """,
-                            ("admin_present", hash_password("admin"), "Администратор (презентация)", "admin", now),
-                        )
-                        conn.commit()
-                        logger.info("[Seed] Добавлен admin_present/admin для презентации")
+            # Admin уже существует — обновляем хеш чтобы admin/admin работал
+            existing_hash = row[1]
+            from utils.auth_utils import verify_password
+            if not verify_password("admin", existing_hash):
+                cursor.execute(
+                    q("UPDATE users SET password_hash = %s WHERE username = 'admin'"),
+                    (hash_password("admin"),),
+                )
+                conn.commit()
+                logger.info("[Seed] Хеш admin обновлён на admin/admin")
+        # Также гарантируем admin/admin123 для обратной совместимости
+        cursor.execute("SELECT COUNT(*) FROM users WHERE username = 'admin_present'")
+        if cursor.fetchone()[0] == 0:
+            now = datetime.now().isoformat()
+            cursor.execute(
+                f"""
+                INSERT INTO users (username, password_hash, name, role, created_at)
+                VALUES ({_ph(5)})
+                """,
+                ("admin_present", hash_password("admin"), "Администратор (презентация)", "admin", now),
+            )
+            conn.commit()
+            logger.info("[Seed] Добавлен admin_present/admin")
 
         cursor.execute("SELECT COUNT(*) FROM parsed_leads")
         if cursor.fetchone()[0] == 0:
