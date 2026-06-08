@@ -26,41 +26,53 @@ export const useAuthStore = defineStore('auth', () => {
     _save(data.user, data.token)
   }
 
+  async function _doFetchMe(retries: number): Promise<boolean> {
+    // If we have a stale mock token but mocks are now disabled, clear it
+    if (!USE_MOCKS && token.value?.startsWith('mock-')) {
+      logout()
+      return false
+    }
+
+    // If mock token and mocks enabled, restore from localStorage
+    if (USE_MOCKS && token.value?.startsWith('mock-')) {
+      const saved = localStorage.getItem('ksvrn_user')
+      if (saved) {
+        try { user.value = JSON.parse(saved) } catch { /* ignore */ }
+      }
+      return true
+    }
+
+    try {
+      const { data } = await authApi.me()
+      user.value = data
+      localStorage.setItem('ksvrn_user', JSON.stringify(data))
+      return true
+    } catch (e: any) {
+      // 401 — retry with backoff before clearing token (race: server restart)
+      if (e?.response?.status === 401 && retries > 0) {
+        await new Promise(r => setTimeout(r, 2000))
+        return _doFetchMe(retries - 1)
+      }
+      // If backend explicitly says 401 after all retries, clear auth
+      if (e?.response?.status === 401) {
+        logout()
+        return false
+      }
+      // Network error, 404, etc — keep token, try to restore from localStorage
+      const saved = localStorage.getItem('ksvrn_user')
+      if (saved) {
+        try { user.value = JSON.parse(saved) } catch { /* ignore */ }
+      }
+      return false
+    }
+  }
+
   async function fetchMe() {
     if (!token.value) return
     if (fetchMeInFlight) return await fetchMeInFlight
 
     fetchMeInFlight = (async () => {
-      // If we have a stale mock token but mocks are now disabled, clear it
-      if (!USE_MOCKS && token.value?.startsWith('mock-')) {
-        logout()
-        return
-      }
-
-      // If mock token and mocks enabled, restore from localStorage
-      if (USE_MOCKS && token.value?.startsWith('mock-')) {
-        const saved = localStorage.getItem('ksvrn_user')
-        if (saved) {
-          try { user.value = JSON.parse(saved) } catch { /* ignore */ }
-        }
-        return
-      }
-
-      try {
-        const { data } = await authApi.me()
-        user.value = data
-        localStorage.setItem('ksvrn_user', JSON.stringify(data))
-      } catch (e: any) {
-        // If backend rejects token, clear auth
-        if (e?.response?.status === 401) {
-          logout()
-        }
-        // Otherwise (network error, 404) keep token and try to restore from localStorage
-        const saved = localStorage.getItem('ksvrn_user')
-        if (saved) {
-          try { user.value = JSON.parse(saved) } catch { /* ignore */ }
-        }
-      }
+      await _doFetchMe(2) // 2 retries ≈ 4 seconds of backoff
     })()
 
     try {
