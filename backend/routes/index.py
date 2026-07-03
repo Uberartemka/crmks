@@ -79,7 +79,8 @@ def me(current_user: dict = Depends(get_current_user_dep)):
 
 @router.get("/api/users")
 def list_users(current_user: dict = Depends(get_current_user_dep)):
-    # DISABLED_FOR_PRESENTATION — role check removed
+    if current_user["role"] not in ("admin", "manager"):
+        raise HTTPException(status_code=403, detail="Forbidden")
 
     conn = get_db()
     cursor = conn.cursor()
@@ -92,7 +93,8 @@ def list_users(current_user: dict = Depends(get_current_user_dep)):
 
 @router.post("/api/users")
 def create_user(data: UserCreate, current_user: dict = Depends(get_current_user_dep)):
-    # DISABLED_FOR_PRESENTATION — role check removed
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Admin required")
 
     conn = get_db()
     cursor = conn.cursor()
@@ -121,7 +123,8 @@ def create_user(data: UserCreate, current_user: dict = Depends(get_current_user_
 
 @router.delete("/api/users/{user_id}")
 def delete_user(user_id: int, current_user: dict = Depends(get_current_user_dep)):
-    # DISABLED_FOR_PRESENTATION — role check removed
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Admin required")
 
     conn = get_db()
     cursor = conn.cursor()
@@ -136,17 +139,30 @@ def list_plans(current_user: dict = Depends(get_current_user_dep)):
     conn = get_db()
     cursor = conn.cursor()
 
-    # DISABLED_FOR_PRESENTATION — always all plans (was role-based filter)
-    cursor.execute(
-        q(
-            """
-            SELECT p.id, p.user_id, u.name, p.month, p.year, p.calls_target, p.registrations_target
-            FROM employee_plans p
-            JOIN users u ON u.id = p.user_id
-            ORDER BY p.year DESC, p.month DESC
-            """
+    if current_user["role"] in ("admin", "manager"):
+        cursor.execute(
+            q(
+                """
+                SELECT p.id, p.user_id, u.name, p.month, p.year, p.calls_target, p.registrations_target
+                FROM employee_plans p
+                JOIN users u ON u.id = p.user_id
+                ORDER BY p.year DESC, p.month DESC
+                """
+            )
         )
-    )
+    else:
+        cursor.execute(
+            q(
+                """
+                SELECT p.id, p.user_id, u.name, p.month, p.year, p.calls_target, p.registrations_target
+                FROM employee_plans p
+                JOIN users u ON u.id = p.user_id
+                WHERE p.user_id = %s
+                ORDER BY p.year DESC, p.month DESC
+                """
+            ),
+            (current_user["id"],),
+        )
 
     rows = cursor.fetchall()
     conn.close()
@@ -167,7 +183,8 @@ def list_plans(current_user: dict = Depends(get_current_user_dep)):
 
 @router.post("/api/plans")
 def create_plan(data: PlanCreate, current_user: dict = Depends(get_current_user_dep)):
-    # DISABLED_FOR_PRESENTATION — role check removed
+    if current_user["role"] not in ("admin", "manager"):
+        raise HTTPException(status_code=403, detail="Forbidden")
 
     conn = get_db()
     cursor = conn.cursor()

@@ -60,7 +60,7 @@ async def monitor_clients_endpoint(current_user: dict = Depends(get_current_user
     """
     Agent-мониторинг: проверяет сайты клиентов и создаёт задачи при обнаружении сигналов.
     """
-    if False:  # DISABLED_FOR_PRESENTATION — role check
-        pass
+    if current_user["role"] not in ["admin", "manager"]:
+        raise HTTPException(403, "Forbidden: только admin и manager")
 
     return await monitor_clients_internal()

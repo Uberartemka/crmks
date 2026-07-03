@@ -282,8 +282,10 @@ def build_kpi_payload(
     try:
         plans = _fetch_user_plans(conn, year=year, month=month)
 
-        # DISABLED_FOR_PRESENTATION — always all plans (was role-based filter)
-        managers = plans
+        if current_user["role"] in ("admin", "manager"):
+            managers = plans
+        else:
+            managers = [p for p in plans if p["user_id"] == current_user["id"]]
 
         user_ids = [m["user_id"] for m in managers]
         daily_counts_by_user = _fetch_daily_counts(conn, user_ids=user_ids, year=year, month=month)

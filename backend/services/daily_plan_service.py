@@ -336,9 +336,12 @@ def get_daily_plan_for_team_or_user(current_user: dict[str, Any]) -> list[dict[s
     year = now.year
     today_str = now.strftime("%Y-%m-%d")
 
-    # DISABLED_FOR_PRESENTATION — always all employees (was role-based filter)
-    cursor.execute(q("SELECT id, name FROM users WHERE role = 'employee' ORDER BY name"))
-    users = cursor.fetchall()
+    # Получить всех сотрудников или текущего
+    if current_user["role"] in ("admin", "manager"):
+        cursor.execute(q("SELECT id, name FROM users WHERE role = 'employee' ORDER BY name"))
+        users = cursor.fetchall()
+    else:
+        users = [(current_user["id"], current_user["name"])]
 
     result: list[dict[str, Any]] = []
     for uid, uname in users:
@@ -400,7 +403,10 @@ def get_daily_plan_for_team_or_user(current_user: dict[str, Any]) -> list[dict[s
 
 
 def generate_daily_plan_assign_unassigned_leads(current_user: dict[str, Any]) -> dict[str, Any]:
-    # DISABLED_FOR_PRESENTATION — role check removed
+    if current_user["role"] not in ("admin", "manager"):
+        from fastapi import HTTPException
+
+        raise HTTPException(status_code=403, detail="Forbidden")
 
     conn = get_db()
     cursor = conn.cursor()

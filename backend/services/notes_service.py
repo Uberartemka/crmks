@@ -110,7 +110,9 @@ async def update_note(
         raise HTTPException(404, "Заметка не найдена")
 
     owner_id = row[1]
-    # DISABLED_FOR_PRESENTATION — admin role check removed
+    if owner_id != current_user["id"] and current_user.get("role") != "admin":
+        conn.close()
+        raise HTTPException(403, "Forbidden")
 
     now = datetime.now().isoformat()
     tags_json = json.dumps(data.tags or [])
@@ -162,7 +164,9 @@ async def delete_note(
         raise HTTPException(404, "Заметка не найдена")
 
     owner_id = row[0]
-    # DISABLED_FOR_PRESENTATION — admin role check removed
+    if owner_id != current_user["id"] and current_user.get("role") != "admin":
+        conn.close()
+        raise HTTPException(403, "Forbidden")
 
     cursor.execute(q("DELETE FROM notes WHERE id = %s"), (note_id,))
     conn.commit()

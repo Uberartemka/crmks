@@ -43,7 +43,13 @@ async def list_tasks_endpoint(
     """
     params: list[Any] = []
 
-    # DISABLED_FOR_PRESENTATION — role-based task filter removed
+    # employee sees only own tasks + unassigned tasks (assigned_to IS NULL)
+    if current_user["role"] == "employee":
+        sql += " AND (assigned_to = %s OR assigned_to IS NULL)"
+        params.append(current_user["id"])
+        logger.info(
+            f"[list_tasks] Фильтрация по assigned_to={current_user['id']} ИЛИ assigned_to IS NULL для employee"
+        )
 
     if status:
         sql += " AND status = %s"
@@ -213,7 +219,9 @@ async def update_task_endpoint(
 
     assigned_to = row[1]
     is_unassigned = assigned_to is None
-    # DISABLED_FOR_PRESENTATION — employee role check removed
+    if current_user["role"] == "employee" and not is_unassigned and assigned_to != current_user["id"]:
+        conn.close()
+        raise HTTPException(403, "Forbidden")
 
     fields: list[str] = []
     values: list[Any] = []
@@ -302,7 +310,9 @@ async def delete_task_endpoint(task_id: int, current_user: dict | None = None) -
         raise HTTPException(404, "Задача не найдена")
 
     assigned_to = row[1]
-    # DISABLED_FOR_PRESENTATION — employee role check removed
+    if current_user["role"] == "employee" and assigned_to != current_user["id"]:
+        conn.close()
+        raise HTTPException(403, "Forbidden")
 
     cursor.execute(q("DELETE FROM tasks WHERE id = %s"), (task_id,))
     conn.commit()
@@ -494,7 +504,9 @@ async def update_note(note_id: int, data: Any, current_user: dict | None = None)
         conn.close()
         raise HTTPException(404, "Заметка не найдена")
 
-    # DISABLED_FOR_PRESENTATION — admin role check removed
+    if row[1] != current_user["id"] and current_user["role"] != "admin":
+        conn.close()
+        raise HTTPException(403, "Forbidden")
 
     now = datetime.now().isoformat()
     tags_json = json.dumps(data.tags or [])
@@ -538,7 +550,9 @@ async def delete_note(note_id: int, current_user: dict | None = None) -> dict[st
         conn.close()
         raise HTTPException(404, "Заметка не найдена")
 
-    # DISABLED_FOR_PRESENTATION — admin role check removed
+    if row[0] != current_user["id"] and current_user["role"] != "admin":
+        conn.close()
+        raise HTTPException(403, "Forbidden")
 
     cursor.execute(q("DELETE FROM notes WHERE id = %s"), (note_id,))
     conn.commit()
@@ -770,7 +784,8 @@ def find_best_assignee_for_task(
 async def get_team_workload_endpoint(current_user: dict | None = None) -> dict[str, Any]:
     if current_user is None:
         raise HTTPException(401, "Missing current_user")
-    # DISABLED_FOR_PRESENTATION — role check removed
+    if current_user["role"] not in ["admin", "manager"]:
+        raise HTTPException(403, "Forbidden: только admin и manager могут просматривать загруженность команды")
 
     team_workload = get_team_workload()
     return {"team": team_workload}
@@ -779,7 +794,8 @@ async def get_team_workload_endpoint(current_user: dict | None = None) -> dict[s
 async def get_user_workload_endpoint(user_id: int, current_user: dict | None = None) -> dict[str, Any]:
     if current_user is None:
         raise HTTPException(401, "Missing current_user")
-    # DISABLED_FOR_PRESENTATION — role check removed
+    if current_user["role"] == "employee" and current_user["id"] != user_id:
+        raise HTTPException(403, "Forbidden: employee может смотреть только свою загруженность")
 
     workload = calculate_user_workload(user_id)
     return workload
@@ -788,7 +804,8 @@ async def get_user_workload_endpoint(user_id: int, current_user: dict | None = N
 async def smart_assign_task_endpoint(body: dict[str, Any], current_user: dict | None = None) -> dict[str, Any]:
     if current_user is None:
         raise HTTPException(401, "Missing current_user")
-    # DISABLED_FOR_PRESENTATION — role check removed
+    if current_user["role"] not in ["admin", "manager"]:
+        raise HTTPException(403, "Forbidden: только admin и manager могут распределять задачи")
 
     title = body.get("title", "Новая задача")
     description = body.get("description", "")

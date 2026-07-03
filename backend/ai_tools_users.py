@@ -124,8 +124,10 @@ def list_tasks(ctx, assigned_to: int | None = None, status: str = "todo") -> dic
     from db import q
     current_user = ctx["current_user"]
     
-    # DISABLED_FOR_PRESENTATION — role check removed
-    target_user_id = assigned_to if assigned_to is not None else current_user["id"]
+    # Права доступа
+    target_user_id = current_user["id"]
+    if current_user["role"] in ("admin", "manager") and assigned_to is not None:
+        target_user_id = assigned_to
         
     sql = """
         SELECT id, assigned_to, created_by, lead_id, call_id, title, description, priority, due_date, status, source, created_at
@@ -207,8 +209,10 @@ def create_task(ctx, assigned_to: int, title: str, description: str | None = Non
     due = (datetime.now() + timedelta(hours=due_hours)).isoformat()
     now = datetime.now().isoformat()
     
-    # DISABLED_FOR_PRESENTATION — employee role check removed
+    # Security: employee может создавать задачи только для себя
     current_user = ctx["current_user"]
+    if current_user["role"] == "employee" and assigned_to != current_user["id"]:
+        return {"success": False, "error": "Forbidden: employee can create tasks only for themselves"}
     
     # Проверяем что assigned_to существует
     with db_cursor() as cur:
@@ -280,9 +284,13 @@ def create_smart_task(ctx, title: str, description: str = "", priority: str = "n
     current_user = ctx["current_user"]
 
 
-    # DISABLED_FOR_PRESENTATION — employee role check removed
+    # Умное распределение задачи
     best_assignee = find_best_assignee_for_task(priority, task_type)
     assigned_to = best_assignee['user_id'] if best_assignee else current_user["id"]
+
+    # Security: employee может создавать задачи только для себя
+    if current_user["role"] == "employee":
+        assigned_to = current_user["id"]
     
     due = (datetime.now() + timedelta(hours=24)).isoformat()
     now = datetime.now().isoformat()
@@ -364,9 +372,12 @@ def complete_task(ctx, task_id: int) -> dict:
     current_user = ctx["current_user"]
     now = datetime.now().isoformat()
     
-    # DISABLED_FOR_PRESENTATION — employee role check removed
+    # Сначала проверяем существование и права
     check_sql = "SELECT id FROM tasks WHERE id = %s"
     params = [task_id]
+    if current_user["role"] == "employee":
+        check_sql += " AND assigned_to = %s"
+        params.append(current_user["id"])
         
     with db_cursor() as cur:
         cur.execute(q(check_sql), tuple(params))
