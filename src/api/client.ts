@@ -2,10 +2,15 @@ import axios, { AxiosError, type InternalAxiosRequestConfig, type AxiosResponse 
 
 const TOKEN_KEY = 'ksvrn_token'
 
+// Use a SAME-ORIGIN (relative) base URL in production so the SPA talks to the
+// FastAPI backend that serves it (via nginx /api/ proxy on the CRM server).
+// In Vite dev, the `server.proxy['/api']` rule in vite.config forwards /api/*
+// to localhost:8000, so a relative base works there too. This avoids hardcoding
+// any host and works unchanged across localhost / IP / future domain.
 const API_BASE_URL =
   window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
-    ? import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
-    : 'https://crmks-production-7ae6.up.railway.app'
+    ? import.meta.env.VITE_API_BASE_URL || ''
+    : ''
 
 export const api = axios.create({
   baseURL: API_BASE_URL,
