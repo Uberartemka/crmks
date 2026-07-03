@@ -15,6 +15,10 @@ to_timestamp().
 
 Idempotent: re-running inserts nothing new (existing rows are re-enriched with
 no-op COALESCE). Returns stats: {"inserted", "enriched", "errors"}.
+Note: `enriched` counts every existing row touched on each run (the UPDATE is
+a no-op COALESCE on re-run but still counts). Only `inserted` is strictly
+idempotent. This is fine for one-shot imports; for repeated runs read
+`inserted` to detect new rows.
 
 Pricing model: price_new/price_old are carried 1:1. A future retail/wholesale
 scheme is out of scope here (tracked with the multitenancy work).
@@ -122,53 +126,51 @@ def import_from_kyk(conn) -> dict[str, Any]:
             brand_id = _get_or_create_brand_ci(conn, brand) if brand else None
             category_id = _get_or_create_category_ci(conn, category) if category else None
 
-            cur = conn.cursor()
-            cur.execute(
-                "SELECT id FROM products WHERE code = %s AND brand_id IS NOT DISTINCT FROM %s",
-                (code, brand_id),
-            )
-            existing = cur.fetchone()
-
-            if existing is None:
-                # INSERT new product with all source fields.
+            with conn.cursor() as cur:
                 cur.execute(
-                    """
-                    INSERT INTO products
-                        (code, name, brand_id, category_id,
+                    "SELECT id FROM products WHERE code = %s AND brand_id IS NOT DISTINCT FROM %s",
+                    (code, brand_id),
+                )
+                existing = cur.fetchone()
+
+                if existing is None:
+                    # INSERT new product with all source fields.
+                    cur.execute(
+                        """
+                        INSERT INTO products
+                            (code, name, brand_id, category_id,
+                             weight, d, d_outer, b_width,
+                             rs_min, static_load, dynamic_load, rpm_oil, rpm_grease, seal_type,
+                             price_old, price_new, stock, is_active, application,
+                             created_at, updated_at)
+                        VALUES (%s,%s,%s,%s, %s,%s,%s,%s, %s,%s,%s,%s,%s,%s, %s,%s,%s,%s,%s,
+                                to_timestamp(%s), to_timestamp(%s))
+                        """,
+                        (code, name or code, brand_id, category_id,
                          weight, d, d_outer, b_width,
                          rs_min, static_load, dynamic_load, rpm_oil, rpm_grease, seal_type,
-                         price_old, price_new, stock, is_active, application,
-                         created_at, updated_at)
-                    VALUES (%s,%s,%s,%s, %s,%s,%s,%s, %s,%s,%s,%s,%s,%s, %s,%s,%s,%s,%s,
-                            to_timestamp(%s), to_timestamp(%s))
-                    """,
-                    (code, name or code, brand_id, category_id,
-                     weight, d, d_outer, b_width,
-                     rs_min, static_load, dynamic_load, rpm_oil, rpm_grease, seal_type,
-                     price_old, price_new,
-                     stock if stock is not None else 0,
-                     True if is_active is None else is_active,
-                     [],
-                     created_at, updated_at),
-                )
-                conn.commit()
-                cur.close()
-                stats["inserted"] += 1
-            else:
-                # ENRICH: fill NULL characteristic/price/stock fields only.
-                product_id = existing[0]
-                set_clause = ", ".join(
-                    f"{f} = COALESCE(products.{f}, %s)" for f in _ENRICH_FIELDS
-                )
-                cur.execute(
-                    f"UPDATE products SET {set_clause}, updated_at = now() WHERE id = %s",
-                    (weight, d, d_outer, b_width,
-                     rs_min, static_load, dynamic_load, rpm_oil, rpm_grease, seal_type,
-                     price_old, price_new, stock, product_id),
-                )
-                conn.commit()
-                cur.close()
-                stats["enriched"] += 1
+                         price_old, price_new,
+                         stock if stock is not None else 0,
+                         True if is_active is None else is_active,
+                         [],
+                         created_at, updated_at),
+                    )
+                    conn.commit()
+                    stats["inserted"] += 1
+                else:
+                    # ENRICH: fill NULL characteristic/price/stock fields only.
+                    product_id = existing[0]
+                    set_clause = ", ".join(
+                        f"{f} = COALESCE(products.{f}, %s)" for f in _ENRICH_FIELDS
+                    )
+                    cur.execute(
+                        f"UPDATE products SET {set_clause}, updated_at = now() WHERE id = %s",
+                        (weight, d, d_outer, b_width,
+                         rs_min, static_load, dynamic_load, rpm_oil, rpm_grease, seal_type,
+                         price_old, price_new, stock, product_id),
+                    )
+                    conn.commit()
+                    stats["enriched"] += 1
         except Exception as e:
             logger.error(f"[import-kyk] failed to import code={code!r}: {e}")
             stats["errors"] += 1

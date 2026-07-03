@@ -150,6 +150,21 @@ def test_import_preserves_is_active(seeded_kyk_import):
     assert states == [False, True]   # '604' false, '6203 ZZ' true (ordered by code)
 
 
+def test_import_preserves_is_active_on_enrich(seeded_kyk_import):
+    """Existing row's is_active must NOT be overwritten by source on enrich."""
+    conn = seeded_kyk_import
+    # Force the existing '605' to is_active=false; source row has is_active=true.
+    cur = conn.cursor()
+    cur.execute("UPDATE products SET is_active = false WHERE code = '605'")
+    cur.close()
+    import_from_kyk(conn)
+    cur = conn.cursor()
+    cur.execute("SELECT is_active FROM products WHERE code='605'")
+    is_active = cur.fetchone()[0]
+    cur.close()
+    assert is_active is False
+
+
 def test_import_converts_unix_timestamps(seeded_kyk_import):
     conn = seeded_kyk_import
     import_from_kyk(conn)
