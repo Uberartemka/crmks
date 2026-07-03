@@ -10,12 +10,16 @@ from startup.db_init import startup_init_db
 from services.queue_service import init_queue_manager as _init_queue_manager
 from db_async import init_async_pool, close_async_pool
 from token_store import init_token_store, close_token_store
+from migrations.runner import apply_all
+from db import PG_URL
 
 load_dotenv(override=True)
 
 
 async def on_startup() -> None:
     startup_init_db()
+    # Apply DB migrations (idempotent) before any pool relies on the schema.
+    apply_all(PG_URL)
     # _init_queue_manager()  # disabled on Railway — queue requires PostgreSQL + Chromium
     await init_async_pool()
     await init_token_store()
