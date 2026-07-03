@@ -187,3 +187,53 @@ def test_update_stock_changes_fields(db_conn):
 def test_update_stock_missing_returns_false(db_conn):
     _apply_all_migrations(db_conn)
     assert update_stock(db_conn, 99999, stock=1) is False
+
+
+import pytest
+
+from services.catalog_v1_service import (
+    invalidate_brand_cache, invalidate_product_cache,
+)
+
+
+class _FakeRedis:
+    """In-memory stand-in for redis. Tracks deleted keys."""
+    def __init__(self):
+        self.deleted = []
+    def delete(self, *keys):
+        self.deleted.extend(keys)
+        return len(keys)
+
+
+@pytest.fixture
+def free_fake_redis():
+    return _FakeRedis()
+
+
+def test_invalidate_brand_cache(free_fake_redis):
+    invalidate_brand_cache(free_fake_redis)
+    assert "crm:catalog:brands" in free_fake_redis.deleted
+
+
+def test_invalidate_product_cache(free_fake_redis):
+    invalidate_product_cache(free_fake_redis, 42)
+    assert "crm:catalog:product:42" in free_fake_redis.deleted
+
+
+def test_update_stock_invalidates_product_cache(db_conn, free_fake_redis):
+    _apply_all_migrations(db_conn)
+    _seed(db_conn, brands=_brands(), categories=[], products=[
+        {"id": 1, "code": "604", "name": "P604", "brand_id": 1, "stock": 0},
+    ])
+    update_stock(db_conn, 1, stock=5, redis_client=free_fake_redis)
+    assert "crm:catalog:product:1" in free_fake_redis.deleted
+
+
+def test_update_stock_no_redis_client_works(db_conn):
+    _apply_all_migrations(db_conn)
+    _seed(db_conn, brands=_brands(), categories=[], products=[
+        {"id": 1, "code": "604", "name": "P604", "brand_id": 1, "stock": 0},
+    ])
+    # redis_client defaults to None — must not raise.
+    ok = update_stock(db_conn, 1, stock=5)
+    assert ok is True

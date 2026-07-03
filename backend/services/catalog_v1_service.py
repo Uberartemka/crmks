@@ -213,8 +213,13 @@ def update_stock(
     stock: Optional[int] = None,
     price_old: Optional[float] = None,
     price_new: Optional[float] = None,
+    redis_client=None,
 ) -> bool:
-    """Update stock/price for a product. Returns True if a row was updated."""
+    """Update stock/price for a product. Returns True if a row was updated.
+
+    If redis_client is provided, invalidates the product's card cache after
+    a successful update.
+    """
     sets = []
     params: list[Any] = []
     if stock is not None:
@@ -241,4 +246,42 @@ def update_stock(
         conn.commit()
     finally:
         cur.close()
+
+    if affected > 0 and redis_client is not None:
+        invalidate_product_cache(redis_client, product_id)
     return affected > 0
+
+
+# --- Redis cache helpers -------------------------------------------------
+# Reads use caching later; for now we expose invalidation so the
+# stock-update path can clear stale entries.
+
+CACHE_KEY_BRANDS = "crm:catalog:brands"
+CACHE_KEY_CATEGORIES = "crm:catalog:categories"
+
+
+def _cache_key_product(product_id: int) -> str:
+    return f"crm:catalog:product:{product_id}"
+
+
+def invalidate_brand_cache(redis_client) -> None:
+    """Clear the brands list cache."""
+    try:
+        redis_client.delete(CACHE_KEY_BRANDS)
+    except Exception as e:
+        logger.warning(f"[cache] brand invalidate failed: {e}")
+
+
+def invalidate_category_cache(redis_client) -> None:
+    try:
+        redis_client.delete(CACHE_KEY_CATEGORIES)
+    except Exception as e:
+        logger.warning(f"[cache] category invalidate failed: {e}")
+
+
+def invalidate_product_cache(redis_client, product_id: int) -> None:
+    """Clear a single product card cache."""
+    try:
+        redis_client.delete(_cache_key_product(product_id))
+    except Exception as e:
+        logger.warning(f"[cache] product {product_id} invalidate failed: {e}")
