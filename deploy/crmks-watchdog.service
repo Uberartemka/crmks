@@ -1,0 +1,25 @@
+[Unit]
+Description=frontcrm job_queue watchdog (requeue stalled tasks, cleanup Chromium)
+After=network.target postgresql.service
+Wants=postgresql.service
+
+[Service]
+Type=simple
+User=crmks
+Group=crmks
+WorkingDirectory=/var/www/crmks/backend
+EnvironmentFile=/var/www/crmks/backend/.env
+ExecStart=/var/www/crmks/backend/venv/bin/python -m watchdog
+Restart=always
+RestartSec=10
+StandardOutput=append:/var/log/crmks/watchdog.log
+StandardError=append:/var/log/crmks/watchdog.log
+
+# Безопасность: watchdog только читает/пишет в свою директорию и логи.
+# cleanup_orphan_chromium может убивать процессы — поэтому оставляем
+# минимум ограничений, чтобы os.kill() работал.
+NoNewPrivileges=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

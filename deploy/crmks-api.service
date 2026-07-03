@@ -1,0 +1,23 @@
+[Unit]
+Description=frontcrm FastAPI Backend (uvicorn)
+After=network.target postgresql.service redis-server.service
+Wants=postgresql.service redis-server.service
+
+[Service]
+Type=simple
+User=crmks
+Group=crmks
+WorkingDirectory=/var/www/crmks/backend
+EnvironmentFile=/var/www/crmks/backend/.env
+ExecStart=/var/www/crmks/backend/venv/bin/uvicorn main:app --host 127.0.0.1 --port 8000 --workers 4 --proxy-headers --forwarded-allow-ips '*'
+Restart=always
+RestartSec=5
+StandardOutput=append:/var/log/crmks/api.log
+StandardError=append:/var/log/crmks/api.log
+
+# Безопасность
+NoNewPrivileges=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target
