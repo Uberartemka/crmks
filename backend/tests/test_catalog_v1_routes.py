@@ -119,3 +119,70 @@ def test_filter_by_brand(db_conn, request):
     assert resp.status_code == 200
     assert resp.json()["total"] >= 1
 
+
+# --- Stock-update auth gate ---
+import os
+import auth as _auth_mod
+
+
+def _set_b2b_token(request, token):
+    """Force the B2B token used by verify_b2b_token (read at import time)."""
+    original = _auth_mod.B2B_ADMIN_TOKEN
+    _auth_mod.B2B_ADMIN_TOKEN = token
+    request.addfinalizer(lambda: setattr(_auth_mod, "B2B_ADMIN_TOKEN", original))
+
+
+def test_stock_update_without_token_returns_401(db_conn, request):
+    _apply_all_migrations(db_conn)
+    _seed(db_conn)
+    _set_b2b_token(request, "secret_xyz")
+    client = TestClient(_make_app(db_conn, request))
+    resp = client.post("/api/v1/products/1/stock", json={"stock": 5})
+    assert resp.status_code == 401
+
+
+def test_stock_update_with_wrong_token_returns_401(db_conn, request):
+    _apply_all_migrations(db_conn)
+    _seed(db_conn)
+    _set_b2b_token(request, "secret_xyz")
+    client = TestClient(_make_app(db_conn, request))
+    resp = client.post(
+        "/api/v1/products/1/stock",
+        json={"stock": 5},
+        headers={"Authorization": "Bearer wrong"},
+    )
+    assert resp.status_code == 401
+
+
+def test_stock_update_with_correct_token_works(db_conn, request):
+    _apply_all_migrations(db_conn)
+    _seed(db_conn)
+    _set_b2b_token(request, "secret_xyz")
+    client = TestClient(_make_app(db_conn, request))
+    resp = client.post(
+        "/api/v1/products/1/stock",
+        json={"stock": 99, "price_new": 150.0},
+        headers={"Authorization": "Bearer secret_xyz"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "ok"
+    # verify DB
+    cur = db_conn.cursor()
+    cur.execute("SELECT stock, price_new FROM products WHERE id=1")
+    stock, price = cur.fetchone()
+    cur.close()
+    assert stock == 99
+    assert float(price) == 150.0
+
+
+def test_stock_update_missing_product_returns_404(db_conn, request):
+    _apply_all_migrations(db_conn)
+    _set_b2b_token(request, "secret_xyz")
+    client = TestClient(_make_app(db_conn, request))
+    resp = client.post(
+        "/api/v1/products/99999/stock",
+        json={"stock": 1},
+        headers={"Authorization": "Bearer secret_xyz"},
+    )
+    assert resp.status_code == 404
+
