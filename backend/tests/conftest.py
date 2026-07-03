@@ -14,7 +14,7 @@ TEST_DATABASE_URL = os.getenv(
 
 # Tables that the watchdog/migration tests touch. Truncated before each test.
 # Order matters: products references categories/brands, list dependents first.
-_TABLES_TO_CLEAR = ["products", "categories", "brands", "sku_catalog", "job_queue"]
+_TABLES_TO_CLEAR = ["products", "categories", "brands", "sku_catalog", "kyk_products_import", "job_queue"]
 
 
 def _connect():
