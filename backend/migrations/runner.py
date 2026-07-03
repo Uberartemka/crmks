@@ -29,6 +29,23 @@ def apply_migration_001(conn) -> None:
     logger.info("[migration] 001_job_queue_watchdog.sql applied.")
 
 
+def apply_migration_002(conn) -> None:
+    """Apply migration 002 to a *raw* psycopg2 connection.
+
+    Adds sku_catalog.application text[] to match the production schema on
+    the sites server, so catalog imports preserve the application field.
+    """
+    sql_path = _MIGRATIONS_DIR / "002_sku_catalog_application.sql"
+    sql = sql_path.read_text(encoding="utf-8")
+    conn.autocommit = True
+    cur = conn.cursor()
+    try:
+        cur.execute(sql)
+    finally:
+        cur.close()
+    logger.info("[migration] 002_sku_catalog_application.sql applied.")
+
+
 def apply_all(dsn: str) -> None:
     """Apply all migrations to the DB at `dsn`. Used on app startup."""
     import psycopg2
@@ -36,5 +53,6 @@ def apply_all(dsn: str) -> None:
     conn = psycopg2.connect(dsn)
     try:
         apply_migration_001(conn)
+        apply_migration_002(conn)
     finally:
         conn.close()
