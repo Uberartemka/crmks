@@ -19,4 +19,8 @@ plan_managers.html
 backend/_tmp_*
 backend/*.db
 backend/app.log
-/dist  
+/dist
+
+# Сопутствующие сайты клиентов — отдельные репозитории, не часть CRM.
+# Поддерживаемые сейчас: kykbrg-site (KYK Bearings).
+/kykbrg-site
