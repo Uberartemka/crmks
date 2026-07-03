@@ -13,7 +13,8 @@ TEST_DATABASE_URL = os.getenv(
 )
 
 # Tables that the watchdog/migration tests touch. Truncated before each test.
-_TABLES_TO_CLEAR = ["job_queue"]
+# Order matters: products references categories/brands, list dependents first.
+_TABLES_TO_CLEAR = ["products", "categories", "brands", "sku_catalog", "job_queue"]
 
 
 def _connect():
