@@ -195,30 +195,38 @@ class QueueManager:
                 time.sleep(5)  # Sleep 5 seconds on database error before retrying
 
     def _claim_next_task(self):
-        # Transactionally find the next pending task and claim it
-        now = datetime.now().isoformat()
-        with self.lock:
-            conn = psycopg2.connect(DATABASE_URL)
+        """Atomically claim the next eligible pending task.
+
+        Uses FOR UPDATE SKIP LOCKED so multiple workers (or a worker + tests)
+        cannot grab the same row. Respects process_after: a task whose
+        process_after is in the future (deferred for backoff) is skipped.
+        No python-level lock — Postgres row locking is the source of truth.
+        """
+        conn = psycopg2.connect(DATABASE_URL)
+        try:
             cursor = conn.cursor()
-            # Postgres supports SELECT ... FOR UPDATE for highly secure concurrent row-locking!
             cursor.execute(
                 """
-                SELECT id, task_type, payload, retries, max_retries 
-                FROM job_queue 
-                WHERE status = 'pending' 
-                ORDER BY id ASC LIMIT 1 
-                FOR UPDATE SKIP LOCKED
+                UPDATE job_queue
+                   SET status = 'processing',
+                       claimed_at = now(),
+                       updated_at = now(),
+                       retries = retries + 1
+                 WHERE id = (
+                   SELECT id FROM job_queue
+                    WHERE status = 'pending'
+                      AND process_after <= now()
+                    ORDER BY id
+                    FOR UPDATE SKIP LOCKED
+                    LIMIT 1
+                 )
+                 RETURNING id, task_type, payload, retries, max_retries
                 """
             )
             row = cursor.fetchone()
+            conn.commit()
             if row:
                 task_id, task_type, payload, retries, max_retries = row
-                cursor.execute(
-                    "UPDATE job_queue SET status = 'processing', updated_at = %s WHERE id = %s",
-                    (now, task_id),
-                )
-                conn.commit()
-                conn.close()
                 return {
                     "id": task_id,
                     "type": task_type,
@@ -226,8 +234,9 @@ class QueueManager:
                     "retries": retries,
                     "max_retries": max_retries,
                 }
+            return None
+        finally:
             conn.close()
-        return None
 
     def _process_task(self, task):
         task_id = task["id"]
