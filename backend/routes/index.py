@@ -292,6 +292,9 @@ def register_routes(app) -> None:
 
     app.include_router(catalog_skus_router)
 
+    from routes.catalog_v1 import router as catalog_v1_router
+    app.include_router(catalog_v1_router)
+
     from routes.clients import router as clients_router
 
     app.include_router(clients_router)
