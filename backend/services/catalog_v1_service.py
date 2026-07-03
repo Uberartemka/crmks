@@ -129,3 +129,116 @@ def _row_to_list_item(r) -> dict:
 def _to_float(v):
     """numeric -> float for JSON serialization."""
     return float(v) if v is not None else None
+
+
+# Full column set for the product card (includes all specs).
+_PRODUCT_COLUMNS = (
+    "p.id", "p.code", "p.name", "p.weight",
+    "p.d", "p.d_outer", "p.b_width", "p.rs_min",
+    "p.static_load", "p.dynamic_load",
+    "p.rpm_oil", "p.rpm_grease", "p.seal_type",
+    "p.price_old", "p.price_new", "p.stock", "p.is_active",
+    "p.application", "p.img",
+    "p.created_at", "p.updated_at",
+    "b.id", "b.name", "b.slug",
+    "c.id", "c.name", "c.slug",
+)
+
+
+def get_product(conn, product_id: int) -> Optional[dict]:
+    """Return the full product card, or None if not found."""
+    cur = conn.cursor()
+    try:
+        cols = ", ".join(_PRODUCT_COLUMNS)
+        cur.execute(
+            f"""
+            SELECT {cols} FROM products p
+            LEFT JOIN brands b ON b.id = p.brand_id
+            LEFT JOIN categories c ON c.id = p.category_id
+            WHERE p.id = %s
+            """,
+            (product_id,),
+        )
+        r = cur.fetchone()
+    finally:
+        cur.close()
+    if r is None:
+        return None
+    return {
+        "id": r[0], "code": r[1], "name": r[2], "weight": _to_float(r[3]),
+        "d": _to_float(r[4]), "d_outer": _to_float(r[5]), "b_width": _to_float(r[6]),
+        "rs_min": _to_float(r[7]), "static_load": _to_float(r[8]),
+        "dynamic_load": _to_float(r[9]),
+        "rpm_oil": r[10], "rpm_grease": r[11], "seal_type": r[12],
+        "price_old": _to_float(r[13]), "price_new": _to_float(r[14]),
+        "stock": r[15], "is_active": r[16],
+        "application": list(r[17]) if r[17] else [],
+        "img": r[18],
+        "created_at": r[19].isoformat() if r[19] else None,
+        "updated_at": r[20].isoformat() if r[20] else None,
+        "brand": ({"id": r[21], "name": r[22], "slug": r[23]} if r[21] else None),
+        "category": ({"id": r[24], "name": r[25], "slug": r[26]} if r[24] else None),
+    }
+
+
+def list_brands(conn) -> list:
+    cur = conn.cursor()
+    try:
+        cur.execute("SELECT id, name, slug FROM brands ORDER BY name")
+        rows = cur.fetchall()
+    finally:
+        cur.close()
+    return [{"id": r[0], "name": r[1], "slug": r[2]} for r in rows]
+
+
+def list_categories(conn) -> list:
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            "SELECT id, name, slug, title, parent_id FROM categories ORDER BY name"
+        )
+        rows = cur.fetchall()
+    finally:
+        cur.close()
+    return [
+        {"id": r[0], "name": r[1], "slug": r[2], "title": r[3], "parent_id": r[4]}
+        for r in rows
+    ]
+
+
+def update_stock(
+    conn,
+    product_id: int,
+    *,
+    stock: Optional[int] = None,
+    price_old: Optional[float] = None,
+    price_new: Optional[float] = None,
+) -> bool:
+    """Update stock/price for a product. Returns True if a row was updated."""
+    sets = []
+    params: list[Any] = []
+    if stock is not None:
+        sets.append("stock = %s")
+        params.append(int(stock))
+    if price_old is not None:
+        sets.append("price_old = %s")
+        params.append(price_old)
+    if price_new is not None:
+        sets.append("price_new = %s")
+        params.append(price_new)
+    if not sets:
+        return False
+    sets.append("updated_at = now()")
+    params.append(product_id)
+
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            f"UPDATE products SET {', '.join(sets)} WHERE id = %s",
+            params,
+        )
+        affected = cur.rowcount
+        conn.commit()
+    finally:
+        cur.close()
+    return affected > 0

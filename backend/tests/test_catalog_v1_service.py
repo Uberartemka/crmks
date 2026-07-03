@@ -117,3 +117,73 @@ def test_pagination(db_conn):
     assert len(page1["items"]) == 2
     assert len(page2["items"]) == 2
     assert page1["items"][0]["id"] != page2["items"][0]["id"]
+
+
+from services.catalog_v1_service import (
+    get_product, list_brands, list_categories, update_stock,
+)
+
+
+def test_get_product_returns_all_specs(db_conn):
+    _apply_all_migrations(db_conn)
+    _seed(db_conn, brands=_brands(), categories=_categories(), products=[
+        {"id": 1, "code": "604", "name": "P604", "brand_id": 1, "category_id": 2},
+    ])
+    # add specs directly
+    cur = db_conn.cursor()
+    cur.execute(
+        "UPDATE products SET rs_min=0.2, static_load=0.36, dynamic_load=0.97, "
+        "rpm_oil=63000, seal_type='Открытый', application='{\"Универсальное\"}' "
+        "WHERE id=1"
+    )
+    cur.close()
+    p = get_product(db_conn, 1)
+    assert p["id"] == 1
+    assert p["rs_min"] == 0.2
+    assert p["static_load"] == 0.36
+    assert p["rpm_oil"] == 63000
+    assert p["seal_type"] == "Открытый"
+    assert p["application"] == ["Универсальное"]
+    assert p["brand"]["name"] == "KYK"
+
+
+def test_get_product_returns_none_for_missing(db_conn):
+    _apply_all_migrations(db_conn)
+    assert get_product(db_conn, 99999) is None
+
+
+def test_list_brands(db_conn):
+    _apply_all_migrations(db_conn)
+    _seed(db_conn, brands=_brands(), categories=[], products=[])
+    result = list_brands(db_conn)
+    assert len(result) == 2
+    assert result[0]["slug"] in ("kyk", "fkd")
+
+
+def test_list_categories_includes_parent(db_conn):
+    _apply_all_migrations(db_conn)
+    _seed(db_conn, brands=[], categories=_categories(), products=[])
+    result = list_categories(db_conn)
+    assert len(result) == 2
+    mini = next(c for c in result if c["slug"] == "mini")
+    assert mini["parent_id"] == 1
+
+
+def test_update_stock_changes_fields(db_conn):
+    _apply_all_migrations(db_conn)
+    _seed(db_conn, brands=_brands(), categories=[], products=[
+        {"id": 1, "code": "604", "name": "P604", "brand_id": 1, "stock": 0},
+    ])
+    updated = update_stock(db_conn, 1, stock=42, price_new=350.00)
+    assert updated is True
+    cur = db_conn.cursor()
+    cur.execute("SELECT stock, price_new FROM products WHERE id=1")
+    stock, price = cur.fetchone()
+    cur.close()
+    assert stock == 42
+    assert float(price) == 350.00
+
+
+def test_update_stock_missing_returns_false(db_conn):
+    _apply_all_migrations(db_conn)
+    assert update_stock(db_conn, 99999, stock=1) is False
