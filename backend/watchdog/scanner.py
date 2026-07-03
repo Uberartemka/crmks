@@ -66,3 +66,70 @@ def requeue_stalled(conn) -> int:
     if total:
         logger.info(f"[watchdog] requeued {total} stalled task(s).")
     return total
+
+
+# ----------------------------------------------------------------------
+# Orphan Chromium cleanup (for stalled generate_pdf tasks)
+# ----------------------------------------------------------------------
+import os
+import time
+from typing import Callable, List, Tuple
+
+
+def _list_chromium_procs(older_than_sec: int = 300) -> List[Tuple[int, str, int]]:
+    """Return [(pid, name, age_seconds)] for chromium-like processes.
+
+    Uses psutil if available; returns [] on any failure (best-effort —
+    cleanup must never crash the watchdog).
+    """
+    try:
+        import psutil
+    except ImportError:
+        logger.warning("[watchdog] psutil not installed — Chromium cleanup disabled.")
+        return []
+
+    out = []
+    now = time.time()
+    for proc in psutil.process_iter(["pid", "name", "create_time"]):
+        try:
+            name = (proc.info["name"] or "").lower()
+            if not any(token in name for token in ("chromium", "chrome", "headless")):
+                continue
+            age = int(now - proc.info["create_time"])
+            out.append((proc.info["pid"], name, age))
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            continue
+    return out
+
+
+def cleanup_orphan_chromium(
+    older_than_sec: int = 300,
+    killer: Callable[[int], None] = None,
+) -> int:
+    """Kill chromium-like processes older than `older_than_sec`.
+
+    `killer` is injectable for testing; defaults to os.kill on POSIX or
+    taskkill on Windows. Returns the number of killed processes.
+    """
+    if killer is None:
+        killer = _default_killer
+
+    killed = 0
+    for pid, _name, age in _list_chromium_procs(older_than_sec):
+        if age >= older_than_sec:
+            try:
+                killer(pid)
+                killed += 1
+                logger.info(f"[watchdog] killed orphan chromium pid={pid} age={age}s")
+            except Exception as e:
+                logger.warning(f"[watchdog] failed to kill pid={pid}: {e}")
+    return killed
+
+
+def _default_killer(pid: int) -> None:
+    """Platform-aware process kill."""
+    if os.name == "nt":
+        os.system(f"taskkill /PID {pid} /F >nul 2>&1")
+    else:
+        import signal
+        os.kill(pid, signal.SIGKILL)
