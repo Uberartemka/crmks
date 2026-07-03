@@ -279,7 +279,7 @@ async def parse_kp_request(body: Dict[str, Any], request: Request):
     for item in items:
         article = item.get("article", "")
         cursor.execute(
-            q("SELECT id, sku, price FROM sku_catalog WHERE sku ILIKE %s LIMIT 1"),
+            q("SELECT id, code, price_new FROM products WHERE code ILIKE %s LIMIT 1"),
             (f"%{article}%",),
         )
         cat_row = cursor.fetchone()

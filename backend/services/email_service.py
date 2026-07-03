@@ -45,10 +45,10 @@ def _get_proposal_for_email(proposal_id: int) -> dict[str, Any]:
                     pi.price_base,
                     pi.discount_item,
                     pi.price_final,
-                    s.sku,
-                    s.type
+                    p.code,
+                    p.name
                 FROM proposal_items pi
-                JOIN sku_catalog s ON pi.sku_id = s.id
+                JOIN products p ON pi.sku_id = p.id
                 WHERE pi.proposal_id = %s
                 ORDER BY pi.id
                 """

@@ -133,8 +133,11 @@ def get_proposal(proposal_id: int) -> dict[str, Any]:
 
     cursor.execute(
         q("""
-        SELECT pi.id, pi.sku_id, s.sku, s.type, s.brand, pi.qty, pi.price_base, pi.discount_item, pi.price_final
-        FROM proposal_items pi JOIN sku_catalog s ON pi.sku_id = s.id WHERE pi.proposal_id = %s
+        SELECT pi.id, pi.sku_id, p.code, p.name, b.name, pi.qty, pi.price_base, pi.discount_item, pi.price_final
+        FROM proposal_items pi
+                JOIN products p ON pi.sku_id = p.id
+                LEFT JOIN brands b ON b.id = p.brand_id
+        WHERE pi.proposal_id = %s
         """),
         (proposal_id,),
     )
@@ -343,7 +346,7 @@ async def download_proposal_pdf_deprecated(proposal_id: int) -> dict[str, Any]:
 def add_proposal_item(proposal_id: int, data: ProposalItemInput) -> dict[str, Any]:
     conn = get_db()
     cursor = conn.cursor()
-    cursor.execute(q("SELECT price FROM sku_catalog WHERE id = %s"), (data.sku_id,))
+    cursor.execute(q("SELECT price_new FROM products WHERE id = %s"), (data.sku_id,))
     row = cursor.fetchone()
     if not row:
         conn.close()
