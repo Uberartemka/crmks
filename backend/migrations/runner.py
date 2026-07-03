@@ -59,6 +59,23 @@ def apply_migration_003(conn) -> None:
     logger.info("[migration] 003_unified_catalog.sql applied.")
 
 
+def apply_migration_004(conn) -> None:
+    """Apply migration 004 — repoint proposal_items.sku_id FK to products(id) RESTRICT.
+
+    Safe on fresh DBs (idempotent, guarded). Assumes products + proposal_items
+    tables already exist (created by migration 003 and startup/db_init).
+    """
+    sql_path = _MIGRATIONS_DIR / "004_proposal_items_fk_products.sql"
+    sql = sql_path.read_text(encoding="utf-8")
+    conn.autocommit = True
+    cur = conn.cursor()
+    try:
+        cur.execute(sql)
+    finally:
+        cur.close()
+    logger.info("[migration] 004_proposal_items_fk_products.sql applied.")
+
+
 def apply_all(dsn: str) -> None:
     """Apply all migrations to the DB at `dsn`. Used on app startup."""
     import psycopg2
@@ -68,5 +85,6 @@ def apply_all(dsn: str) -> None:
         apply_migration_001(conn)
         apply_migration_002(conn)
         apply_migration_003(conn)
+        apply_migration_004(conn)
     finally:
         conn.close()
