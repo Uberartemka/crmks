@@ -4,6 +4,7 @@ import time
 import threading
 import logging
 import os
+import random
 from datetime import datetime
 
 # === PostgreSQL-Backed Robust Multithreaded Task Queue Manager ===
@@ -238,6 +239,48 @@ class QueueManager:
         finally:
             conn.close()
 
+    def _mark_failed(self, task_id, error_msg, retries, max_retries):
+        """Handle a failed task: either requeue with backoff or mark 'failed'.
+
+        Backoff: process_after = now + 2^min(retries,6) * (1+jitter) seconds.
+        The task only becomes claimable again once process_after <= now(),
+        so a failing external API is not hammered on every worker poll.
+        """
+        conn = psycopg2.connect(DATABASE_URL)
+        try:
+            cursor = conn.cursor()
+            if retries >= max_retries:
+                cursor.execute(
+                    """
+                    UPDATE job_queue
+                       SET status = 'failed', error_message = %s, updated_at = now()
+                     WHERE id = %s
+                    """,
+                    (error_msg, task_id),
+                )
+                logger.error(f"[!] [Queue Worker] Task #{task_id} exhausted retries. Status: FAILED")
+            else:
+                backoff = (2 ** min(retries, 6)) * (1 + random.random())
+                cursor.execute(
+                    """
+                    UPDATE job_queue
+                       SET status = 'pending',
+                           error_message = %s,
+                           process_after = now() + (%s || ' seconds')::interval,
+                           claimed_at = NULL,
+                           updated_at = now()
+                     WHERE id = %s
+                    """,
+                    (error_msg, str(backoff), task_id),
+                )
+                logger.warning(
+                    f"[*] [Queue Worker] Task #{task_id} returned to queue. "
+                    f"Retry in {backoff:.1f}s (attempt {retries}/{max_retries})"
+                )
+            conn.commit()
+        finally:
+            conn.close()
+
     def _process_task(self, task):
         task_id = task["id"]
         task_type = task["type"]
@@ -288,41 +331,17 @@ class QueueManager:
             logger.error(f"[!] Ошибка при обработке задачи #{task_id}: {error_msg}")
 
         now = datetime.now().isoformat()
-        with self.lock:
+        if success:
             conn = psycopg2.connect(DATABASE_URL)
-            cursor = conn.cursor()
-
-            if success:
+            try:
+                cursor = conn.cursor()
                 cursor.execute(
-                    "UPDATE job_queue SET status = 'completed', updated_at = %s WHERE id = %s",
-                    (now, task_id),
+                    "UPDATE job_queue SET status = 'completed', updated_at = now() WHERE id = %s",
+                    (task_id,),
                 )
-                logger.info(f"[Queue Worker] Задача #{task_id} выполнена успешно!")
-            else:
-                new_retries = task["retries"] + 1
-                if new_retries >= task["max_retries"]:
-                    cursor.execute(
-                        """
-                        UPDATE job_queue 
-                        SET status = 'failed', retries = %s, error_message = %s, updated_at = %s 
-                        WHERE id = %s
-                        """,
-                        (new_retries, error_msg, now, task_id),
-                    )
-                    logger.error(f"[!] [Queue Worker] Задача #{task_id} исчерпала попытки. Статус: FAILED")
-                else:
-                    cursor.execute(
-                        """
-                        UPDATE job_queue 
-                        SET status = 'pending', retries = %s, error_message = %s, updated_at = %s 
-                        WHERE id = %s
-                        """,
-                        (new_retries, error_msg, now, task_id),
-                    )
-                    logger.warning(
-                        f"[*] [Queue Worker] Задача #{task_id} возвращена в очередь на повтор. "
-                        f"Попытка {new_retries}/{task['max_retries']}"
-                    )
-
-            conn.commit()
-            conn.close()
+                conn.commit()
+            finally:
+                conn.close()
+            logger.info(f"[Queue Worker] Задача #{task_id} выполнена успешно!")
+        else:
+            self._mark_failed(task_id, error_msg, task["retries"], task["max_retries"])
