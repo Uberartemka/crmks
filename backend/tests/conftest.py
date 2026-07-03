@@ -31,10 +31,13 @@ def db_conn():
     conn.autocommit = True
     cur = conn.cursor()
     for t in _TABLES_TO_CLEAR:
-        # TRUNCATE only if the table exists; migration tests may drop/recreate it.
-        cur.execute(
-            "TRUNCATE TABLE IF EXISTS {} RESTART IDENTITY CASCADE".format(t)
-        )
+        # Only truncate if the table actually exists; migration tests may
+        # drop/recreate it, and the very first run has no job_queue yet.
+        # PostgreSQL does not support TRUNCATE ... IF EXISTS, so we gate on
+        # to_regclass() which returns NULL for missing relations.
+        cur.execute("SELECT to_regclass('public.%s')" % t)
+        if cur.fetchone()[0] is not None:
+            cur.execute("TRUNCATE TABLE {} RESTART IDENTITY CASCADE".format(t))
     cur.close()
     try:
         yield conn
