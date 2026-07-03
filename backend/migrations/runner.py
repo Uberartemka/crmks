@@ -46,6 +46,19 @@ def apply_migration_002(conn) -> None:
     logger.info("[migration] 002_sku_catalog_application.sql applied.")
 
 
+def apply_migration_003(conn) -> None:
+    """Apply migration 003 — unified relational catalog (brands/categories/products)."""
+    sql_path = _MIGRATIONS_DIR / "003_unified_catalog.sql"
+    sql = sql_path.read_text(encoding="utf-8")
+    conn.autocommit = True
+    cur = conn.cursor()
+    try:
+        cur.execute(sql)
+    finally:
+        cur.close()
+    logger.info("[migration] 003_unified_catalog.sql applied.")
+
+
 def apply_all(dsn: str) -> None:
     """Apply all migrations to the DB at `dsn`. Used on app startup."""
     import psycopg2
@@ -54,5 +67,6 @@ def apply_all(dsn: str) -> None:
     try:
         apply_migration_001(conn)
         apply_migration_002(conn)
+        apply_migration_003(conn)
     finally:
         conn.close()
