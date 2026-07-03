@@ -14,9 +14,16 @@ def _apply_all_migrations(conn):
 
 
 def _create_proposal_items(conn):
-    """Create proposal_items with the OLD FK to sku_catalog (mimics db_init state)."""
+    """Create proposal_items with the OLD FK to sku_catalog (mimics db_init state).
+
+    Uses DROP+CREATE (not IF NOT EXISTS) so each test starts from the legacy
+    schema regardless of whether a previous run already migrated the FK to
+    products. Without this, the migration's idempotency would leave the FK
+    pointing at products and the "before" assertion would be wrong.
+    """
     cur = conn.cursor()
-    # parent tables proposals + clients + users
+    # Drop dependents first; recreate parent tables idempotently.
+    cur.execute("DROP TABLE IF EXISTS proposal_items CASCADE")
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS clients (
@@ -34,10 +41,18 @@ def _create_proposal_items(conn):
         )
         """
     )
-    # proposal_items with the legacy FK → sku_catalog(id) ON DELETE CASCADE
+    # proposal_items with the legacy FK → sku_catalog(id) ON DELETE CASCADE.
+    # (sku_catalog must exist for this FK; create a minimal stub if absent.)
     cur.execute(
         """
-        CREATE TABLE IF NOT EXISTS proposal_items (
+        CREATE TABLE IF NOT EXISTS sku_catalog (
+            id SERIAL PRIMARY KEY, sku TEXT
+        )
+        """
+    )
+    cur.execute(
+        """
+        CREATE TABLE proposal_items (
             id SERIAL PRIMARY KEY,
             proposal_id INTEGER REFERENCES proposals(id) ON DELETE CASCADE,
             sku_id INTEGER REFERENCES sku_catalog(id) ON DELETE CASCADE,
