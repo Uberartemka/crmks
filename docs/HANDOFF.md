@@ -56,6 +56,15 @@
 - Ветка запушена, на CRM-сервере `feat/import-kyk-products` активна (не смержена в main — см. Known issue #8)
 - Тесты: **72/72 зелёные**
 
+### 5b. Proposal-flow переведён на products (Plan, выполнен)
+- `plans/2026-07-04-proposals-migrate-to-products.md` — ✅ **выполнен** (ветка `feat/proposals-to-products`)
+- **Миграция 004:** `proposal_items.sku_id` FK `sku_catalog(id) CASCADE` → `products(id) RESTRICT`. На пустой `proposal_items` — мгновенно, без data-migration.
+- **4 SQL-точки контакта** переведены на `products` (+ JOIN brands): `proposals.py:137` (чтение КП), `proposals.py:346` (цена при создании item), `email_service.py:51` (email-КП), `ai_claude_agent.py:282` (ILIKE-поиск при парсинге).
+- **`/api/catalog/skus`** (список SKU для `/admin/proposals`) — переписан на `products + brands + categories`, форма ответа сохранена. **Все 1213 SKU теперь видны в /admin/proposals** (было 478 из sku_catalog).
+- Маппинг полей: `sku→code, type→name, brand→brands.name, price→price_new`.
+- **Тесты:** 11 новых (миграция 004: 4, proposal-флоу: 4, catalog_skus: 3). Всего **83/83 зелёные**.
+- Задеплоено на прод: FK переведён, API рестартован, `6203 ZZ` виден через `/api/catalog/skus` с характеристиками.
+
 ### 6. Прочее
 - `kykbrg-site/` вынесен из репо в `D:/Projects/kykbrg-site` + добавлен в `.gitignore`
 - Revert `a2c183b` (снятые role-checks) на main — авторизация рабочая
@@ -64,7 +73,7 @@
 
 ## 🚨 Known issues / trade-offs (важно помнить!)
 
-1. **`proposal_items.sku_id` имеет FK на `sku_catalog(id)` ON DELETE CASCADE.** КП ссылаются на старый каталог. Перед удалением `sku_catalog` (после миграции сайтов) нужно перевести КП на `products.id`.
+1. **✅ РЕШЕНО (морг 004):** `proposal_items.sku_id` теперь FK → `products(id) ON DELETE RESTRICT` (был `sku_catalog CASCADE`). Весь proposal-флоу (proposals, email, AI-парсинг, /api/catalog/skus) читает из `products`. `sku_catalog` больше не используется proposal-флоу, но **таблицу пока НЕ дропаем** (destructive — отдельная задача после подтверждения стабильности).
 2. **API-ключи в `.env` = REPLACE_ME.** AI-функции (Kimi/CF/SERPAPI) не работают, пока не впишешь. На сервере: `/var/www/crmks/backend/.env` → `systemctl restart crmks-api`.
 3. **Нет SSL/домена** — CRM доступна по http://72.56.246.21. Когда купишь домен: `certbot --nginx -d <домен>`.
 4. **`/api/v1/products/{id}/stock` (GET) не сделан** — решили, что избыточен (`product_card` уже возвращает stock+price).
@@ -82,18 +91,19 @@
 
 | # | Задача | Сложность |
 |---|---|---|
-| 1 | **Смержить `feat/import-kyk-products` в main** (код на проде, но ветка не в main) | тривиально |
-| 2 | **Нормализация code-маппинга** — обогатить 357 старых KYK-записей sku_catalog характеристиками из kyk (нужна логика извлечения чистого артикула из «Подшипник HQ…+ KYK») | средняя |
-| 3 | API-ключи в `.env` (KIMI/CF/SERPAPI) | тривиально |
-| 4 | SSL/домен для CRM (`certbot --nginx`) | тривиально |
-| 5 | **Plan 2: Мультитенантность** (tenants + RLS + middleware) — фундамент для приёма 2-й компании | высокая |
-| 6 | Plan 3: Кастомные поля (jsonb) | средняя |
-| 7 | Plan 4: Redis-очередь (ARQ/RQ) — заменит QueueManager | средняя |
-| 8 | Plan 5: Процессная модель + pgbouncer + `/health`+`/ready` | средняя |
-| 9 | Plan 6: Кэш метаданных | низкая |
-| 10 | Retail/wholesale цены (миграция price_retail/price_wholesale) — вместе с мультитенантностью | средняя |
-| 11 | Переделка сайтов под `/api/v1` | высокая (трогает живое) |
-| 12 | 1С-интеграция (writer остатков через `POST /api/v1/products/{id}/stock`) | высокая |
+| 1 | **Смержить `feat/import-kyk-products` + `feat/proposals-to-products` в main** (обе задеплоены на проде, но не в main) | тривиально |
+| 2 | **DROP `sku_catalog`** — теперь proposal-флоу не использует её. Сначала убедиться, что ничего другого не сломается (catalog_v1 упоминает). | низкая (после проверки) |
+| 3 | **Нормализация code-маппинга** — обогатить 357 старых KYK-записей sku_catalog характеристиками из kyk (нужна логика извлечения чистого артикула из «Подшипник HQ…+ KYK») | средняя |
+| 4 | API-ключи в `.env` (KIMI/CF/SERPAPI) | тривиально |
+| 5 | SSL/домен для CRM (`certbot --nginx`) | тривиально |
+| 6 | **Plan 2: Мультитенантность** (tenants + RLS + middleware) — фундамент для приёма 2-й компании | высокая |
+| 7 | Plan 3: Кастомные поля (jsonb) | средняя |
+| 8 | Plan 4: Redis-очередь (ARQ/RQ) — заменит QueueManager | средняя |
+| 9 | Plan 5: Процессная модель + pgbouncer + `/health`+`/ready` | средняя |
+| 10 | Plan 6: Кэш метаданных | низкая |
+| 11 | Retail/wholesale цены (миграция price_retail/price_wholesale) — вместе с мультитенантностью | средняя |
+| 12 | Переделка сайтов под `/api/v1` | высокая (трогает живое) |
+| 13 | 1С-интеграция (writer остатков через `POST /api/v1/products/{id}/stock`) | высокая |
 
 ---
 
