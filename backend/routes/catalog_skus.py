@@ -46,49 +46,59 @@ def list_skus(
 ):
     conn = get_db()
     cursor = conn.cursor()
+    # Read from the unified products table (+ brands/categories JOIN). The
+    # legacy sku_catalog is being retired; this keeps the response shape
+    # unchanged so the /admin/proposals frontend keeps working.
+    # Column order: id, code, category.name, brand.name, d, d_outer, b_width,
+    #               products.name, stock, price_new, img.
     query = """
-        SELECT id, sku, category, gost, d_inner, d_outer, b_width, type, brand, stock, price, img
-        FROM sku_catalog
+        SELECT p.id, p.code, c.name, b.name, p.d, p.d_outer, p.b_width, p.name,
+               p.stock, p.price_new, p.img
+        FROM products p
+        LEFT JOIN categories c ON c.id = p.category_id
+        LEFT JOIN brands b ON b.id = p.brand_id
         WHERE 1=1
     """.strip()
     params = []
 
     if category and category != "all":
-        query += " AND category = %s"
+        query += " AND c.name = %s"
         params.append(category)
 
     if search:
-        query += " AND (sku ILIKE %s OR type ILIKE %s OR gost ILIKE %s)"
-        params.extend([f"%{search}%", f"%{search}%", f"%{search}%"])
+        query += " AND (p.code ILIKE %s OR p.name ILIKE %s)"
+        params.extend([f"%{search}%", f"%{search}%"])
 
     if d_min is not None:
-        query += " AND d_inner >= %s"
+        query += " AND p.d >= %s"
         params.append(d_min)
 
     if d_max is not None:
-        query += " AND d_inner <= %s"
+        query += " AND p.d <= %s"
         params.append(d_max)
 
-    query += " ORDER BY id ASC"
+    query += " ORDER BY p.id ASC"
     cursor.execute(q(query), params)
 
     rows = cursor.fetchall()
     conn.close()
 
+    # Preserve the legacy response shape (sku, brand, d, D, B, type, price) so
+    # the existing frontend /admin/proposals keeps working unchanged.
     return [
         {
             "id": r[0],
-            "sku": r[1],
-            "category": r[2],
-            "gost": r[3],
+            "sku": r[1],          # products.code
+            "category": r[2],     # categories.name
+            "gost": "",           # not in products; kept for frontend compat
             "d": float(r[4]) if r[4] else None,
             "D": float(r[5]) if r[5] else None,
             "B": float(r[6]) if r[6] else None,
-            "type": r[7],
-            "brand": r[8],
-            "stock": r[9],
-            "price": float(r[10]) if r[10] else 0,
-            "img": r[11],
+            "type": r[7],         # products.name (description)
+            "brand": r[3],        # brands.name
+            "stock": str(r[8]) if r[8] is not None else "0",
+            "price": float(r[9]) if r[9] else 0,
+            "img": r[10],
         }
         for r in rows
     ]
