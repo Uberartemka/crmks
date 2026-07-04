@@ -111,6 +111,23 @@ def apply_migration_006(conn) -> None:
     logger.info("[migration] 006_defects.sql applied.")
 
 
+def apply_migration_007(conn) -> None:
+    """Apply migration 007 — machinery table (карта оборудования клиентов).
+
+    Idempotent (CREATE TABLE IF NOT EXISTS + information_schema guard). Assumes
+    clients + users tables already exist (created by startup/db_init).
+    """
+    sql_path = _MIGRATIONS_DIR / "007_machinery.sql"
+    sql = sql_path.read_text(encoding="utf-8")
+    conn.autocommit = True
+    cur = conn.cursor()
+    try:
+        cur.execute(sql)
+    finally:
+        cur.close()
+    logger.info("[migration] 007_machinery.sql applied.")
+
+
 def apply_all(dsn: str) -> None:
     """Apply all migrations to the DB at `dsn`. Used on app startup."""
     import psycopg2
@@ -123,5 +140,6 @@ def apply_all(dsn: str) -> None:
         apply_migration_004(conn)
         apply_migration_005(conn)
         apply_migration_006(conn)
+        apply_migration_007(conn)
     finally:
         conn.close()

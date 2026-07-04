@@ -258,6 +258,29 @@ def init_catalog_tables() -> None:
                 CREATE INDEX IF NOT EXISTS idx_defects_status ON defects (status)
                 """
             )
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS machinery (
+                    id          SERIAL PRIMARY KEY,
+                    client_id   INTEGER REFERENCES clients(id) ON DELETE CASCADE,
+                    created_by  INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                    name        VARCHAR(300) NOT NULL,
+                    node        VARCHAR(300),
+                    bearing     VARCHAR(300),
+                    brand       VARCHAR(100),
+                    install_date VARCHAR(100),
+                    wear        INTEGER DEFAULT 0,
+                    status      VARCHAR(50) DEFAULT 'normal',
+                    created_at  VARCHAR(100),
+                    updated_at  VARCHAR(100)
+                )
+                """
+            )
+            cursor.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_machinery_client ON machinery (client_id)
+                """
+            )
         else:
             cursor.execute(
                 """
@@ -471,6 +494,29 @@ def init_catalog_tables() -> None:
             cursor.execute(
                 """
                 CREATE INDEX IF NOT EXISTS idx_defects_status ON defects (status)
+                """
+            )
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS machinery (
+                    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                    client_id   INTEGER,
+                    created_by  INTEGER,
+                    name        TEXT NOT NULL,
+                    node        TEXT,
+                    bearing     TEXT,
+                    brand       TEXT,
+                    install_date TEXT,
+                    wear        INTEGER DEFAULT 0,
+                    status      TEXT DEFAULT 'normal',
+                    created_at  TEXT,
+                    updated_at  TEXT
+                )
+                """
+            )
+            cursor.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_machinery_client ON machinery (client_id)
                 """
             )
 
