@@ -133,6 +133,41 @@
 - **«давай мультитенантность»** → writing-plans для Plan 2 (спека уже в `docs/superpowers/specs/2026-07-03-multitenancy-and-scalability-design.md`)
 - **«нормализация code»** → обогащение 357 KYK
 - **«поговорим про AI»** → анализ разговоров (STT+скоринг), RAG по инженерной базе — обсуждали как следующий большой трек
+- **«чат вложения/документооборот»** → Подсистемы II/III (спека I в `docs/superpowers/specs/2026-07-04-chat-messaging-design.md`)
 - или любую другую точку из списка
 
-Все коммиты на main, тесты **121/121** зелёные, прод **https://crmdot.ru** живой.
+Все коммиты на main, тесты **150/150** зелёные, прод **https://crmdot.ru** живой.
+
+---
+
+## 💬 Чат сотрудников (Подсистема I) — реализовано на ветке `feat/chat-messaging`
+
+Real-time чат: общий канал + каналы по отделам + тематические. Запись через REST, доставка через WebSocket (GETDEL ticket auth), per-user rate limit на Redis. 3 типа каналов: general/department (вычисляемое членство по роли) / topic (явные участники). Клиенты чат не видят.
+
+- **Спека:** `docs/superpowers/specs/2026-07-04-chat-messaging-design.md` (+ 6 review-правок: GETDEL, PG partial-indexes, Redis rate-limit, CHECK content, 400 на general/department members, запрет v-html)
+- **План:** `docs/superpowers/plans/2026-07-04-chat-messaging.md` (16 TDD-задач)
+- **Backend:** миграция 009 (channels/members/messages/read_state + general seed), `chat_service.py`, `chat_connections.py` (CONNECTIONS+fanout), `chat_redis.py` (ws-ticket+rate-limit), `routes/chat.py` (REST), `routes/chat_ws.py` (WS handler). +29 тестов → **150/150**.
+- **Frontend:** `types/chat.ts`, `api/chat.ts`, `stores/chat.ts` (Pinia), `composables/useChatSocket.ts` (+jsdom test), `views/ChatView.vue` + 4 компонента (ChannelList/MessageList/MessageInput/TypingIndicator). Router+sidebar для staff (НЕ client). `/ws` dev-proxy.
+- **Зависимости:** `httpx-ws` (WS TestClient), `jsdom` (vitest env).
+
+### ⚠️ Деплой чата — nginx для WebSocket
+
+location `/ws/` требует upgrade-хедеров, иначе WS за прокси не поднимется:
+```nginx
+location /ws/ {
+    proxy_pass http://127.0.0.1:8000;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_read_timeout 86400;
+}
+```
+
+### Known follow-ups (не блокируют)
+
+1. **WS-обработчик роняет сокет на malformed JSON** (T9 review) — `receive_json` кидает `JSONDecodeError`, ловится в generic `except`, соединение закрывается. Лучше ловить JSON-ошибки внутри цикла и продолжать. Некритично.
+2. **`int(user_id_str)` без гуарда** в `chat_ws.py` — теоретически `ValueError` на испорченном Redis-значении (на практике writer всегда пишет `str(int)`). Низкий риск.
+3. **`unread` Record key-type** — API возвращает `Record<string, number>`, store хранит `Record<number, number>`; TS пропустил через index-signature subtyping, runtime работает (JS coercion). Можно нормализовать ключи в `loadUnread` для строгости.
+4. **WS-singleton** — `useChatSocket` держит state в замыкании функции (не module-scope), поэтому соединение открывается только когда юзер в `/.../chat`. Если нужны unread-бейджи всегда — вынести connect в отдельный guard-компонент в App.vue.
+5. **Redis локально отсутствует** — message-тесты используют stub `allow_message` в fixtures (production-код чист, лимитер протестирован отдельно в `test_chat_redis.py`). На проде Redis есть.
+
