@@ -5,7 +5,7 @@ import { useAuthStore } from '@/stores/auth'
 import {
   LayoutDashboard, ListChecks, Users, FileText, LogOut,
   BarChart3, Search, Briefcase, Phone, PersonStanding, ShoppingCart,
-  Calculator, Cog, ClipboardList, History, Send, CalendarDays
+  Calculator, Cog, ClipboardList, History, Send, CalendarDays, MessageSquare
 } from 'lucide-vue-next'
 
 const auth = useAuthStore()
@@ -26,6 +26,7 @@ const menu = computed(() => {
     { to: `${base}/plans`, label: 'Планы', icon: ListChecks },
     { to: `${base}/calls`, label: 'Звонки', icon: Phone },
     { to: `${base}/calendar`, label: 'Календарь', icon: CalendarDays },
+    { to: `${base}/chat`, label: 'Чат', icon: MessageSquare },
     { to: `${base}/personnel`, label: 'Персонал', icon: PersonStanding },
     { to: `${base}/orders`, label: 'Заказы', icon: ShoppingCart },
     { to: `${base}/machinery`, label: 'Оборудование', icon: Cog },
@@ -39,12 +40,14 @@ const menu = computed(() => {
     { to: `${base}/calls`, label: 'Звонки', icon: Phone },
     { to: `${base}/proposals`, label: 'Отправить КП', icon: Send },
     { to: `${base}/calendar`, label: 'Календарь', icon: CalendarDays },
+    { to: `${base}/chat`, label: 'Чат', icon: MessageSquare },
     { to: `${base}/proposal-history`, label: 'История КП', icon: History },
   ]
 
   if (auth.role === 'employee') return [
     ...common,
     { to: `${base}/plan`, label: 'Мой план', icon: ListChecks },
+    { to: `${base}/chat`, label: 'Чат', icon: MessageSquare },
   ]
 
   return [

@@ -13,6 +13,10 @@ export default defineConfig({
     allowedHosts: ['crmks-production.up.railway.app', '.railway.app'],
     proxy: {
       '/api': { target: 'http://localhost:8000', changeOrigin: true },
+      '/ws': {
+        target: 'ws://localhost:8000',
+        ws: true,
+      },
     },
   },
   preview: {
