@@ -615,62 +615,27 @@ def seed_data() -> None:
             )
             logger.info(f"[Seed] Загружено {len(clients)} клиентов.")
 
+        # --- Users: создаём единственного admin СО СЛУЧАЙНЫМ паролем при первом
+        # запуске (пустая таблица). Никаких demo-кредов, никакого автосброса —
+        # пароль меняется только через UI. Пароль выводится в лог ОДИН РАЗ.
         cursor.execute("SELECT COUNT(*) FROM users")
         if cursor.fetchone()[0] == 0:
-            now = datetime.now().isoformat()
-            users = [
-                ("admin", hash_password("admin123"), "Администратор", "admin", now),
-                ("manager1", hash_password("pass123"), "Иванов Иван", "manager", now),
-                ("emp1", hash_password("pass123"), "Петрова Анна", "employee", now),
-                ("emp2", hash_password("pass123"), "Сидоров Пётр", "employee", now),
-            ]
-            cursor.executemany(
-                f"""
-                INSERT INTO users (username, password_hash, name, role, created_at)
-                VALUES ({_ph(5)})
-                """,
-                users,
-            )
-            logger.info(f"[Seed] Загружено {len(users)} пользователей.")
-
-        # Гарантируем, что admin/admin работает (обновляем хеш если нужно)
-        cursor.execute("SELECT id, password_hash FROM users WHERE username = 'admin'")
-        row = cursor.fetchone()
-        if not row:
+            random_password = secrets.token_urlsafe(12)
             now = datetime.now().isoformat()
             cursor.execute(
                 f"""
                 INSERT INTO users (username, password_hash, name, role, created_at)
                 VALUES ({_ph(5)})
                 """,
-                ("admin", hash_password("admin"), "Главный администратор", "admin", now),
+                ("admin", hash_password(random_password), "Администратор", "admin", now),
             )
             conn.commit()
-            logger.info("[Seed] Добавлен admin/admin")
-        else:
-            # Admin уже существует — обновляем хеш чтобы admin/admin работал
-            existing_hash = row[1]
-            from utils.auth_utils import verify_password
-            if not verify_password("admin", existing_hash):
-                cursor.execute(
-                    q("UPDATE users SET password_hash = %s WHERE username = 'admin'"),
-                    (hash_password("admin"),),
-                )
-                conn.commit()
-                logger.info("[Seed] Хеш admin обновлён на admin/admin")
-        # Также гарантируем admin/admin123 для обратной совместимости
-        cursor.execute("SELECT COUNT(*) FROM users WHERE username = 'admin_present'")
-        if cursor.fetchone()[0] == 0:
-            now = datetime.now().isoformat()
-            cursor.execute(
-                f"""
-                INSERT INTO users (username, password_hash, name, role, created_at)
-                VALUES ({_ph(5)})
-                """,
-                ("admin_present", hash_password("admin"), "Администратор (презентация)", "admin", now),
-            )
-            conn.commit()
-            logger.info("[Seed] Добавлен admin_present/admin")
+            logger.warning("=" * 60)
+            logger.warning("СОЗДАН ADMIN СО СЛУЧАЙНЫМ ПАРОЛЕМ — сохраните и смените в UI!")
+            logger.warning("  Логин: admin")
+            logger.warning(f"  Пароль: {random_password}")
+            logger.warning("=" * 60)
+        # Если users не пуст — НЕ трогаем (никакого автосброса пароля admin).
 
         cursor.execute("SELECT COUNT(*) FROM parsed_leads")
         if cursor.fetchone()[0] == 0:
