@@ -178,3 +178,21 @@ def test_get_nonexistent_file_404(seeded_files):
     with pytest.raises(HTTPException) as exc:
         get_file(file_id=999999, current_user={"id": 1, "role": "manager"})
     assert exc.value.status_code == 404
+
+
+def test_storage_path_contains_no_user_input(seeded_files):
+    """Regression: storage_path must be server-generated (token_hex), not the
+    uploaded filename. Prevents path traversal via crafted filenames."""
+    evil_name = "../../../../etc/passwd.pdf"
+    pdf_bytes = b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\n1 0 obj<</Type/Catalog>>endobj\nxref\n0 1\ntrailer<</Root 1 0 R>>\nstartxref\n0\n%%EOF"
+    upload = _make_upload(pdf_bytes, evil_name, "application/pdf")
+    meta = _run(save_upload(upload=upload, current_user={"id": 1, "role": "manager"}))
+    sp = meta["_storage_path"]
+    # no .., no absolute path, only YYYY/MM/<hex>.pdf
+    assert ".." not in sp
+    assert not sp.startswith("/")
+    parts = sp.split("/")
+    assert len(parts) == 3
+    assert parts[0].isdigit() and parts[1].isdigit()
+    assert parts[2].endswith(".pdf")
+    assert "../" not in parts[2] and parts[2].count(".") == 1

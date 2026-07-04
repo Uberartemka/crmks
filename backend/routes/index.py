@@ -356,6 +356,10 @@ def register_routes(app) -> None:
     from routes.chat_ws import router as chat_ws_router
     app.include_router(chat_ws_router)
 
+    # File storage (Подсистема II) — universal file service
+    from routes.files import router as files_router
+    app.include_router(files_router)
+
     from routes.tasks_legacy import router as tasks_legacy_router
 
     app.include_router(tasks_legacy_router)
