@@ -145,6 +145,24 @@ def apply_migration_008(conn) -> None:
     logger.info("[migration] 008_orders.sql applied.")
 
 
+def apply_migration_009(conn) -> None:
+    """Apply migration 009 — chat subsystem (channels/members/messages/read_state).
+
+    Idempotent (CREATE TABLE IF NOT EXISTS + information_schema guards). Assumes
+    users table already exists (created by startup/db_init). Also seeds the
+    single 'general' channel (protected by a partial UNIQUE index).
+    """
+    sql_path = _MIGRATIONS_DIR / "009_chat.sql"
+    sql = sql_path.read_text(encoding="utf-8")
+    conn.autocommit = True
+    cur = conn.cursor()
+    try:
+        cur.execute(sql)
+    finally:
+        cur.close()
+    logger.info("[migration] 009_chat.sql applied.")
+
+
 def apply_all(dsn: str) -> None:
     """Apply all migrations to the DB at `dsn`. Used on app startup."""
     import psycopg2
@@ -159,5 +177,6 @@ def apply_all(dsn: str) -> None:
         apply_migration_006(conn)
         apply_migration_007(conn)
         apply_migration_008(conn)
+        apply_migration_009(conn)
     finally:
         conn.close()
