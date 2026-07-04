@@ -75,7 +75,7 @@ def ai_search(payload: AiSearchRequest):
                             {"role": "user", "content": query},
                         ],
                         "temperature": 0.2,
-                        "max_tokens": 400,
+                        "max_tokens": 1024,
                     }
                 ).encode("utf-8"),
                 headers={

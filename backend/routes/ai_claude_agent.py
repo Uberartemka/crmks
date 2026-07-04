@@ -79,7 +79,7 @@ async def call_claude(prompt: str, system: str = AGENT_SYSTEM_PROMPT) -> str:
                             {"role": "user", "content": prompt},
                         ],
                         "temperature": 0.2,
-                        "max_tokens": 512,
+                        "max_tokens": 1024,
                     },
                     timeout=call_timeout_sec,
                 )
@@ -145,7 +145,7 @@ async def call_claude(prompt: str, system: str = AGENT_SYSTEM_PROMPT) -> str:
                             {"role": "user", "content": prompt},
                         ],
                         "temperature": 0.2,
-                        "max_tokens": 512,
+                        "max_tokens": 1024,
                     },
                     timeout=call_timeout_sec,
                 )

@@ -95,7 +95,7 @@ def test_glm_payload_includes_max_tokens(call_claude_fn, monkeypatch):
     _run(call_claude("test prompt"))
     payload = calls.get("last_glm_payload", {})
     assert "max_tokens" in payload, "max_tokens missing from GLM payload"
-    assert payload["max_tokens"] == 512
+    assert payload["max_tokens"] == 1024
 
 
 def test_falls_back_to_anthropic_when_glm_fails(call_claude_fn, monkeypatch):

@@ -77,7 +77,7 @@ def test_ai_search_uses_glm_model(search_app):
     body = json.loads(captured["body"])
     assert body["model"] == "glm-4.5-flash"
     # max_tokens cap speeds up the response (speed optimization).
-    assert body.get("max_tokens") == 400, "max_tokens=400 missing from payload"
+    assert body.get("max_tokens") == 1024, "max_tokens=1024 missing from payload"
 
 
 def test_ai_search_returns_parsed_json(search_app):
