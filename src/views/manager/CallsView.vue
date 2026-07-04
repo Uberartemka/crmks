@@ -1,8 +1,10 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useCallsStore } from '@/stores/calls'
 import { useTasksStore } from '@/stores/tasks'
 import { useNotesStore } from '@/stores/notes'
+import BaseButton from '@/components/ui/BaseButton.vue'
+import { toast } from '@/plugins/toast'
 import type { CallLog } from '@/types/call'
 
 const calls = useCallsStore()
@@ -97,13 +99,30 @@ function closeModal() {
   modalCall.value = null
 }
 
-async function onCreateTaskFromCall() {
+// --- Create-task-from-call modal ---
+const showTaskModal = ref(false)
+const taskTitle = ref('')
+const taskTitleInput = ref<HTMLInputElement | null>(null)
+
+function openTaskModalFromCall() {
   if (!modalCall.value) return
   const c = modalCall.value
+  taskTitle.value =
+    c.status === 'in_progress'
+      ? `Уточнить по звонку: ${c.client_name}`
+      : `Следующее действие после звонка: ${c.client_name}`
+  showTaskModal.value = true
+  void nextTick(() => taskTitleInput.value?.focus())
+}
 
-  const titleDefault = c.status === 'in_progress' ? `Уточнить по звонку: ${c.client_name}` : `Следующее действие после звонка: ${c.client_name}`
-  const title = prompt('Название задачи', titleDefault)?.trim()
-  if (!title) return
+async function confirmCreateTaskFromCall() {
+  if (!modalCall.value) return
+  const c = modalCall.value
+  const title = taskTitle.value.trim()
+  if (!title) {
+    toast.warning('Введите название задачи')
+    return
+  }
 
   // backend: client_id = lead_id, call_id = call_logs.id
   await tasks.create({
@@ -115,18 +134,35 @@ async function onCreateTaskFromCall() {
     call_id: c.id,
   })
 
+  toast.success('Задача создана')
+  showTaskModal.value = false
   closeModal()
 }
 
-async function onAddNoteFromCall() {
+// --- Add-note-from-call modal ---
+const showNoteModal = ref(false)
+const noteTitle = ref('')
+const noteContent = ref('')
+const noteTitleInput = ref<HTMLInputElement | null>(null)
+
+function openNoteModalFromCall() {
   if (!modalCall.value) return
   const c = modalCall.value
+  noteTitle.value = `Заметка по звонку: ${c.client_name}`
+  noteContent.value = `Статус: ${c.status}\nДата: ${c.call_date}`
+  showNoteModal.value = true
+  void nextTick(() => noteTitleInput.value?.focus())
+}
 
-  const title = prompt('Заголовок заметки', `Заметка по звонку: ${c.client_name}`)?.trim()
-  if (!title) return
-
-  const content =
-    prompt('Текст заметки (можно пусто)', `Статус: ${c.status}\nДата: ${c.call_date}`)?.trim() ?? ''
+async function confirmAddNoteFromCall() {
+  if (!modalCall.value) return
+  const c = modalCall.value
+  const title = noteTitle.value.trim()
+  if (!title) {
+    toast.warning('Введите заголовок заметки')
+    return
+  }
+  const content = noteContent.value.trim()
 
   await notes.create({
     title,
@@ -137,6 +173,8 @@ async function onAddNoteFromCall() {
     client_id: c.lead_id ?? undefined,
   })
 
+  toast.success('Заметка добавлена')
+  showNoteModal.value = false
   closeModal()
 }
 </script>
@@ -244,14 +282,70 @@ async function onAddNoteFromCall() {
           <button class="btn-ghost text-sm" @click="closeModal">
             Отмена
           </button>
-          <button class="btn-primary text-sm" @click="onCreateTaskFromCall">
+          <button class="btn-primary text-sm" @click="openTaskModalFromCall">
             Создать задачу
           </button>
-          <button class="btn-secondary text-sm" @click="onAddNoteFromCall">
+          <BaseButton variant="secondary" class="text-sm" @click="openNoteModalFromCall">
             Добавить заметку
-          </button>
+          </BaseButton>
         </div>
       </div>
     </div>
+
+    <!-- Create-task-from-call modal -->
+    <Teleport to="body">
+      <div
+        v-if="showTaskModal"
+        class="fixed inset-0 z-[10000] flex items-center justify-center p-4"
+        @click.self="showTaskModal = false"
+        @keydown.esc="showTaskModal = false"
+      >
+        <div class="absolute inset-0 bg-black/50 backdrop-blur-sm" />
+        <div class="relative bg-white rounded-xl shadow-2xl border border-slate-200 max-w-md w-full p-6 z-10">
+          <h3 class="font-bold text-base mb-3">Новая задача</h3>
+          <input
+            ref="taskTitleInput"
+            v-model="taskTitle"
+            class="input mb-4"
+            placeholder="Название задачи"
+            @keydown.enter="confirmCreateTaskFromCall"
+          />
+          <div class="flex gap-2 justify-end">
+            <BaseButton variant="secondary" @click="showTaskModal = false">Отмена</BaseButton>
+            <BaseButton variant="primary" @click="confirmCreateTaskFromCall">Создать</BaseButton>
+          </div>
+        </div>
+      </div>
+    </Teleport>
+
+    <!-- Add-note-from-call modal -->
+    <Teleport to="body">
+      <div
+        v-if="showNoteModal"
+        class="fixed inset-0 z-[10000] flex items-center justify-center p-4"
+        @click.self="showNoteModal = false"
+        @keydown.esc="showNoteModal = false"
+      >
+        <div class="absolute inset-0 bg-black/50 backdrop-blur-sm" />
+        <div class="relative bg-white rounded-xl shadow-2xl border border-slate-200 max-w-md w-full p-6 z-10">
+          <h3 class="font-bold text-base mb-3">Новая заметка</h3>
+          <input
+            ref="noteTitleInput"
+            v-model="noteTitle"
+            class="input mb-3"
+            placeholder="Заголовок заметки"
+          />
+          <textarea
+            v-model="noteContent"
+            class="input mb-4 min-h-[80px] resize-y"
+            placeholder="Текст заметки (можно пусто)"
+          />
+          <div class="flex gap-2 justify-end">
+            <BaseButton variant="secondary" @click="showNoteModal = false">Отмена</BaseButton>
+            <BaseButton variant="primary" @click="confirmAddNoteFromCall">Добавить</BaseButton>
+          </div>
+        </div>
+      </div>
+    </Teleport>
   </div>
 </template>

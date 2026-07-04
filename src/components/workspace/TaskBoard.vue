@@ -4,6 +4,7 @@ import draggable from 'vuedraggable'
 import { useTasksStore } from '@/stores/tasks'
 import type { TaskStatus, UserTask } from '@/types/task'
 import TaskCard from './TaskCard.vue'
+import BaseButton from '@/components/ui/BaseButton.vue'
 import { Plus, Trash2, CheckCircle, Play } from 'lucide-vue-next'
 import { useAuthStore } from '@/stores/auth'
 import { useUsersStore } from '@/stores/users'
@@ -265,16 +266,17 @@ async function submitCreateTask() {
         </div>
 
         <div class="flex gap-2 mt-4">
-          <button
-            class="btn btn-primary whitespace-nowrap"
+          <BaseButton
+            variant="primary"
+            class="whitespace-nowrap"
             :disabled="createSubmitting"
             @click="submitCreateTask"
           >
             {{ createSubmitting ? 'Создаю...' : 'Создать' }}
-          </button>
-          <button class="btn btn-secondary whitespace-nowrap" @click="closeCreateModal">
+          </BaseButton>
+          <BaseButton variant="secondary" class="whitespace-nowrap" @click="closeCreateModal">
             Отмена
-          </button>
+          </BaseButton>
         </div>
 
         <p class="text-xs text-slate-500 mt-3">
@@ -305,30 +307,32 @@ async function submitCreateTask() {
         </div>
 
         <div class="flex gap-2">
-          <button
+          <BaseButton
             v-if="selectedTask.status !== 'in_progress' && selectedTask.status !== 'done'"
+            variant="primary"
+            class="whitespace-nowrap"
             @click="startWork"
-            class="btn btn-primary whitespace-nowrap"
           >
             <Play :size="16" class="mr-1" />
             Взять в работу
-          </button>
+          </BaseButton>
 
-          <button
+          <BaseButton
             v-if="selectedTask.status !== 'done'"
+            variant="success"
+            class="whitespace-nowrap"
             @click="completeTask"
-            class="btn btn-success whitespace-nowrap"
           >
             <CheckCircle :size="16" class="mr-1" />
             Выполнено
-          </button>
+          </BaseButton>
 
-          <button @click="deleteTask" class="btn btn-danger whitespace-nowrap">
+          <BaseButton variant="danger" class="whitespace-nowrap" @click="deleteTask">
             <Trash2 :size="16" class="mr-1" />
             Удалить
-          </button>
+          </BaseButton>
 
-          <button @click="closeModal" class="btn btn-secondary">Закрыть</button>
+          <BaseButton variant="secondary" @click="closeModal">Закрыть</BaseButton>
         </div>
       </div>
     </div>

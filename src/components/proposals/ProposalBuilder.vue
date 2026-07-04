@@ -4,6 +4,7 @@ import { useCatalogStore } from '@/stores/catalog'
 import { useClientsStore } from '@/stores/clients'
 import { useProposalsStore } from '@/stores/proposals'
 import { proposalsApi } from '@/api/proposals'
+import { toast } from '@/plugins/toast'
 import type { Sku } from '@/types/catalog'
 import type { Client } from '@/types/client'
 import type { Proposal, ProposalItem } from '@/types/proposal'
@@ -100,6 +101,7 @@ async function createProposal() {
     })
     currentProposalId.value = res.proposal_id
     await refreshProposal()
+    toast.success(`КП #${res.seq_num ?? res.proposal_id} создано`)
   } finally {
     loading.value.proposal = false
   }
@@ -153,7 +155,7 @@ async function updateDiscount(item: ProposalItem, newDisc: number) {
 
 async function applyGlobalDiscount() {
   if (!currentProposalId.value) {
-    alert('Сначала создайте КП')
+    toast.warning('Сначала создайте КП')
     return
   }
   await proposalsStore.setDiscount(currentProposalId.value, { discount_global: globalDiscount.value })
@@ -211,17 +213,17 @@ async function downloadPdf() {
       }
 
       if (st.status === 'failed') {
-        alert(st.error || 'Ошибка генерации PDF')
+        toast.error(st.error || 'Ошибка генерации PDF')
         return
       }
 
       await sleep(2000)
     }
 
-    alert('PDF не успел подготовиться за 15 секунд. Попробуйте ещё раз.')
+    toast.error('PDF не успел подготовиться за 15 секунд. Попробуйте ещё раз.')
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : 'Ошибка генерации PDF'
-    alert(msg)
+    toast.error(msg)
   } finally {
     generatingPdf.value = false
   }
