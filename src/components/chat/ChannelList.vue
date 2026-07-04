@@ -2,7 +2,6 @@
 import { useChatStore } from '@/stores/chat'
 import BaseBadge from '@/components/ui/BaseBadge.vue'
 import { Hash, Users, Megaphone } from 'lucide-vue-next'
-import { computed } from 'vue'
 
 const store = useChatStore()
 const icon = (type: string) => type === 'general' ? Megaphone : type === 'department' ? Hash : Users
