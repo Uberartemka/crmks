@@ -117,3 +117,30 @@ def test_save_upload_exceeds_size_limit_413(seeded_files, monkeypatch):
     with pytest.raises(HTTPException) as exc:
         _run(save_upload(upload=upload, current_user={"id": 1, "role": "manager"}))
     assert exc.value.status_code == 413
+
+
+def test_save_upload_mime_ext_mismatch_415(seeded_files):
+    # Real ZIP magic bytes, but filename claims .pdf → mismatch → 415
+    zip_bytes = b"PK\x03\x04\x14\x00\x00\x00\x08\x00" + b"\x00" * 20 + b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00test"
+    upload = _make_upload(zip_bytes, "report.pdf", "application/pdf")
+    with pytest.raises(HTTPException) as exc:
+        _run(save_upload(upload=upload, current_user={"id": 1, "role": "manager"}))
+    assert exc.value.status_code == 415
+    # temp file cleaned up after rejection
+    leftover = [f for f in os.listdir(seeded_files) if f.endswith(".part")]
+    assert leftover == []
+
+
+def test_save_upload_image_generates_thumbnail(seeded_files):
+    # Minimal valid 1x1 PNG (Pillow-decodable so thumbnail generation succeeds)
+    png_bytes = (
+        b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
+        b"\x08\x02\x00\x00\x00\x90wS\xde\x00\x00\x00\x0cIDATx\x9cc\xf8\xcf\xc0"
+        b"\x00\x00\x03\x01\x01\x00\xc9\xfe\x92\xef\x00\x00\x00\x00IEND\xaeB`\x82"
+    )
+    upload = _make_upload(png_bytes, "avatar.png", "image/png")
+    meta = _run(save_upload(upload=upload, current_user={"id": 1, "role": "manager"}))
+    assert meta["is_image"] is True
+    assert meta["thumbnail_url"] is not None
+    # thumbnail file physically exists
+    assert os.path.exists(os.path.join(seeded_files, meta["_storage_path"].rsplit(".", 1)[0] + "_thumb.jpg"))
