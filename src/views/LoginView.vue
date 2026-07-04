@@ -7,8 +7,6 @@ const auth = useAuthStore()
 const router = useRouter()
 const username = ref(''); const password = ref(''); const err = ref('')
 
-const USE_MOCKS = import.meta.env.VITE_USE_MOCKS === 'true'
-
 async function submit() {
   err.value = ''
 
@@ -17,19 +15,7 @@ async function submit() {
   localStorage.removeItem('ksvrn_user')
 
   try {
-    if (USE_MOCKS) {
-      const role = username.value.startsWith('admin') ? 'admin'
-        : username.value.startsWith('manager') ? 'manager' : 'client'
-      const mockUser: any = { id: 1, username: username.value, name: 'Test', role }
-      auth.$patch({
-        token: 'mock-token',
-        user: mockUser,
-      })
-      localStorage.setItem('ksvrn_token', 'mock-token')
-      localStorage.setItem('ksvrn_user', JSON.stringify(mockUser))
-    } else {
-      await auth.login(username.value, password.value)
-    }
+    await auth.login(username.value, password.value)
     router.push(`/${auth.role}/dashboard`)
   } catch (e: any) {
     err.value = e?.response?.data?.detail ?? 'Ошибка входа'

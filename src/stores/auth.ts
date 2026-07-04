@@ -3,8 +3,6 @@ import { ref, computed } from 'vue'
 import { authApi } from '@/api/auth'
 import type { User, Role } from '@/types/auth'
 
-const USE_MOCKS = import.meta.env.VITE_USE_MOCKS === 'true'
-
 export const useAuthStore = defineStore('auth', () => {
   const user = ref<User | null>(null)
   const token = ref<string | null>(localStorage.getItem('ksvrn_token'))
@@ -27,21 +25,6 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   async function _doFetchMe(retries: number): Promise<boolean> {
-    // If we have a stale mock token but mocks are now disabled, clear it
-    if (!USE_MOCKS && token.value?.startsWith('mock-')) {
-      logout()
-      return false
-    }
-
-    // If mock token and mocks enabled, restore from localStorage
-    if (USE_MOCKS && token.value?.startsWith('mock-')) {
-      const saved = localStorage.getItem('ksvrn_user')
-      if (saved) {
-        try { user.value = JSON.parse(saved) } catch { /* ignore */ }
-      }
-      return true
-    }
-
     try {
       const { data } = await authApi.me()
       user.value = data
