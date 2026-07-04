@@ -173,3 +173,59 @@ def test_send_message_reply_to_nonexistent_parent_gracefully_drops_reply(seeded_
     assert out["reply_to_id"] is None
     assert out["reply_message"] is None
     assert out["content"] == "orphan reply"
+
+
+def test_send_message_reply_to_deleted_parent_drops_reply(seeded_msgs):
+    parent = _run(send_message(
+        channel_id=2,
+        data=MessageCreate(content="will be deleted"),
+        current_user={"id": 1, "role": "manager"},
+    ))
+    _run(delete_message(message_id=parent["id"], current_user={"id": 1, "role": "manager"}))
+    out = _run(send_message(
+        channel_id=2,
+        data=MessageCreate(content="reply after delete", reply_to_id=parent["id"]),
+        current_user={"id": 1, "role": "manager"},
+    ))
+    # parent is soft-deleted → graceful drop
+    assert out["reply_to_id"] is None
+    assert out["reply_message"] is None
+
+
+def test_send_message_reply_to_other_channel_drops_reply(seeded_msgs):
+    # parent lives in channel 2 (user 1 is member); reply attempted in channel 1
+    # (general) pointing at that parent. Cross-channel reply must be rejected by
+    # the channel_id match in the guard → graceful drop.
+    parent = _run(send_message(
+        channel_id=2,
+        data=MessageCreate(content="in topic"),
+        current_user={"id": 1, "role": "manager"},
+    ))
+    out = _run(send_message(
+        channel_id=1,  # general channel — different from parent's channel 2
+        data=MessageCreate(content="cross-channel reply", reply_to_id=parent["id"]),
+        current_user={"id": 1, "role": "manager"},
+    ))
+    assert out["reply_to_id"] is None
+    assert out["reply_message"] is None
+
+
+def test_list_messages_reply_to_deleted_parent_is_null(seeded_msgs):
+    parent = _run(send_message(
+        channel_id=2,
+        data=MessageCreate(content="parent"),
+        current_user={"id": 1, "role": "manager"},
+    ))
+    _run(send_message(
+        channel_id=2,
+        data=MessageCreate(content="reply", reply_to_id=parent["id"]),
+        current_user={"id": 1, "role": "manager"},
+    ))
+    # now soft-delete the parent
+    _run(delete_message(message_id=parent["id"], current_user={"id": 1, "role": "manager"}))
+    hist = _run(list_messages(channel_id=2, current_user={"id": 1, "role": "manager"}))
+    # find the reply (the non-deleted message)
+    reply = next(m for m in hist if m["content"] == "reply")
+    # reply_to_id still set in DB, but reply_message is null (parent deleted)
+    assert reply["reply_to_id"] == parent["id"]
+    assert reply["reply_message"] is None
