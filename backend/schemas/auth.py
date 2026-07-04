@@ -15,6 +15,8 @@ class UserCreate(BaseModel):
     password: str
     name: str
     role: str = "employee"
+    # Optional binding to a client company (required for role="client").
+    client_id: Optional[int] = None
 
 
 class UserOut(BaseModel):
@@ -22,3 +24,5 @@ class UserOut(BaseModel):
     username: str
     name: str
     role: str
+    client_id: Optional[int] = None
+    client_name: Optional[str] = None

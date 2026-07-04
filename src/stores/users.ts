@@ -17,7 +17,13 @@ export const useUsersStore = defineStore('users', () => {
     }
   }
 
-  async function create(data: { username: string; password: string; name: string; role?: string }) {
+  async function create(data: {
+    username: string
+    password: string
+    name: string
+    role?: string
+    client_id?: number | null
+  }) {
     const { data: res } = await usersApi.create(data)
     await load()
     return res

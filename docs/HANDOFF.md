@@ -1,6 +1,6 @@
 # 🎀 Хэндофф сессии 2026-07-04 (большая сессия)
 
-> Точка возобновления. За эту сессию сделано 8 крупных задач. CRM полностью переработана.
+> Точка возобновления. За эту сессию сделано 8 крупных задач + 1 доделка (Group C activation). CRM полностью переработана.
 
 ## 📍 Проект
 
@@ -9,15 +9,25 @@
 - **Репо:** [github.com/Uberartemka/crmks](https://github.com/Uberartemka/crmks) (ветка `main`, HEAD `a57fff7`)
 - **Локальный путь:** `D:\Projects\frontcrm`
 - **Прод:** **https://crmdot.ru** (домен + SSL Let's Encrypt, до 2026-10-02, авто-renew)
-- **Тесты backend:** **116/116** (`cd backend && python -m pytest`)
+- **Тесты backend:** **121/121** (`cd backend && python -m pytest`)
 - **Тесты frontend:** 3 (`npm run test` — vitest, useConfirm)
 - **Серверы:** CRM `72.56.246.21` (herodot), сайты `193.164.149.3`. Ключ `~/.ssh/kyk_server_key`.
 
-**Вход в CRM:** `admin` / `4qszJO0sF8oyGR4h` (случайный пароль, задаётся через UI Personnel). **Demo-креды удалены.**
+**Вход в CRM:** `admin` / `4qszJO0sF8oyGR4h` (случайный пароль, задаётся через UI Personnel).
+
+**Demo client-креды** (только dev/demo, после запуска сида — см. ниже; **ротация перед продом**):
+
+| Логин | Пароль | Клиент |
+|---|---|---|
+| `agroeco` | `agroeco2026` | ООО «АГРОЭКО» |
+| `econiva` | `econiva2026` | ООО «ЭКОНИВА-ЧЕРНОЗЕМЬЕ» |
+| `miratorg` | `miratorg2026` | АПХ «МИРАТОРГ» |
+| `rusagro` | `rusagro2026` | ГК «РУСАГРО» |
+| `elevator` | `elevator2026` | Воронежский Элеватор |
 
 ---
 
-## ✅ Что сделано за сессию (8 крупных задач)
+## ✅ Что сделано за сессию (8 крупных задач + 1 доделка)
 
 ### 1. Импорт kyk.products (735 товаров)
 - Скрипт `scripts/import_kyk_products.py` (staging → products, INSERT + ENRICH через COALESCE, case-insensitive brand)
@@ -72,6 +82,12 @@
 - **Домен crmdot.ru** + SSL Let's Encrypt (certbot, до 2026-10-02)
 - nginx `server_name crmdot.ru www.crmdot.ru 72.56.246.21`, HTTP→HTTPS редирект
 
+### 9. Group C activation — client_id binding + demo-данные (доделка)
+- **Backend:** `UserCreate`/`UserOut` (`schemas/auth.py`) получили опц. `client_id` (+ `client_name` в выдаче). `POST /api/users` сохраняет привязку и требует `client_id` для `role=client` (400 иначе). `GET /api/users` переписан с `LEFT JOIN clients` → возвращает `client_name` (admin без привязки даёт NULL, не пропадает из списка).
+- **Frontend:** `PersonnelView` переписан — добавлена роль **«Клиент»** в селекте + дропдаун компании (грузится из `useClientsStore`), колонка «Компания» в таблице. Заодно переведён на `BaseButton` + `toast` (волна консистентности). `api/users.ts` + `stores/users.ts` пробрасывают `client_id`.
+- **Скрипт сида** `scripts/seed_client_users_and_demo.py` (идемпотентный, каждый блок по `COUNT(*)==0`): 5 client-юзеров (фиксированные пароли, привязка по `bitrix_id` к seed-клиентам) + 6 demo orders (несколько со статусом delivered/paid/shipped за последние 6 мес → Reports оживает) + demo machinery (wear 30/55/82/88%) + demo defects. Запуск: `python -m scripts.seed_client_users_and_demo`.
+- **Тесты:** `test_users_client_binding.py` (+5) → **121/121**. TDD: сначала красные, потом schema/route → зелёные.
+
 ---
 
 ## 🚨 Known issues / trade-offs
@@ -82,40 +98,41 @@
 4. **`sku_catalog` не дропнута** — proposal-флоу её не использует, но таблица осталась. Безопасно удалить после проверки.
 5. **SERPAPI_KEY = REPLACE_ME** — не используется в основном флоу.
 6. **db_init duplicate-noise** в api.log (`relation "defects" already exists`) — db_init и миграции работают параллельно; косметика.
-7. **Reports метрики = 0** — правильно (нет доставленных заказов). Оживут когда появятся orders со статусом delivered/paid/shipped.
-8. **Orders/Machinery/Defects пустые** — таблицы свежие, данных нет. Нужно заводить через UI (admin может создавать от имени client_id; client видит свои после привязки client_id в users).
+7. **Reports метрики = 0** на чистой БД. После запуска `seed_client_users_and_demo.py` оживают (есть orders со статусом delivered/paid/shipped за последние 6 мес). На проде без сида — по-прежнему 0, пока нет реальных заказов.
+8. **Orders/Machinery/Defects** заполняются сидом (`seed_client_users_and_demo.py`) на dev/demo. Client-юзеры создаются там же и привязываются к компаниям. На проде — заводить через UI Personnel (теперь поддерживает роль `client` + выбор компании).
 9. **Reports `period` не валидируется** — неизвестное значение молча fallback на month. Можно добавить 400.
+10. **Demo client-пароли фиксированы** (`agroeco2026` и т.д.) — только dev/demo. Перед любым проду-использованием ротация обязательна.
 
 ---
 
 ## 📋 Что осталось (в порядке приоритета)
 
+> ✅ Пункты «Привязать client_id» и «Заполнить данные» выполнены (Group C activation, см. ниже). Список перенумерован.
+
 | # | Задача | Сложность |
 |---|---|---|
-| 1 | **Привязать client_id** существующим юзерам (сейчас только admin). Создать client-юзеров + привязать к компаниям через `UPDATE users SET client_id=...`. Без этого client-экраны (Orders/Machinery/Defects) недоступны client-роли. | средняя |
-| 2 | **Заполнить данные** — создать тестовые orders/machinery/defects (через UI или скрипт), чтобы Reports показывал реальные цифры | средняя |
-| 3 | **Нормализация code-маппинга** — обогатить 357 старых KYK характеристиками (парсер артикула из «Подшипник HQ…+ KYK») | средняя |
-| 4 | **Реальный Dashboard** с метриками (волна 2 UI) — сейчас это Workspace, не dashboard | средняя |
-| 5 | **BaseBadge массово** по всем view (Clients/Leads/Catalog статусы) | низкая |
-| 6 | **Mobile-адаптив** (бургер-меню sidebar) | средняя |
-| 7 | **DROP sku_catalog** (proposal-флоу не использует, безопасно после проверки) | низкая |
-| 8 | **SERPAPI_KEY** в .env | тривиально |
-| 9 | **B2B_ADMIN_TOKEN** — прописать свой в env (не дефолт) | тривиально |
-| 10 | **Анализ разговоров** (STT + скоринг + извлечение) | высокая |
-| 11 | **RAG по .md** (инженерная база знаний) | средняя |
-| 12 | **Мультитенантность** (Plan 2: tenants + RLS) | высокая |
-| 13 | **Retail/wholesale цены** (миграция) | средняя |
-| 14 | **1С-интеграция** (writer остатков) | высокая |
+| 1 | **Нормализация code-маппинга** — обогатить 357 старых KYK характеристиками (парсер артикула из «Подшипник HQ…+ KYK») | средняя |
+| 2 | **Реальный Dashboard** с метриками (волна 2 UI) — сейчас это Workspace, не dashboard | средняя |
+| 3 | **BaseBadge массово** по всем view (Clients/Leads/Catalog/админ Calls статусы) + добить 4 нативных `confirm()` (`TaskBoard:107`, `NotesGrid:38`, `EventModal:69`, `ParserView:158`) → `useConfirm` | низкая |
+| 4 | **Mobile-адаптив** (бургер-меню sidebar) | средняя |
+| 5 | **DROP sku_catalog** (proposal-флоу не использует, безопасно после проверки) | низкая |
+| 6 | **SERPAPI_KEY** в .env | тривиально |
+| 7 | **B2B_ADMIN_TOKEN** — прописать свой в env (не дефолт) | тривиально |
+| 8 | **Анализ разговоров** (STT + скоринг + извлечение) | высокая |
+| 9 | **RAG по .md** (инженерная база знаний) | средняя |
+| 10 | **Мультитенантность** (Plan 2: tenants + RLS) | высокая |
+| 11 | **Retail/wholesale цены** (миграция) | средняя |
+| 12 | **1С-интеграция** (writer остатков) | высокая |
 
 ---
 
 ## 🧭 Как войти в курс
 
-- **«привяжи client_id»** → создам client-юзеров + UPDATE users SET client_id, проверю что client-экраны работают
-- **«заполни данные»** → скрипт сидинга orders/machinery/defects для демо
+- **«запусти сид»** → `cd backend && python -m scripts.seed_client_users_and_demo` (создаст client-юзеров + demo orders/machinery/defects, идемпотентно)
 - **«давай dashboard»** → реальный экран с KPI (волна 2 UI)
-- **«давай мультитенантность»** → writing-plans для Plan 2
+- **«давай мультитенантность»** → writing-plans для Plan 2 (спека уже в `docs/superpowers/specs/2026-07-03-multitenancy-and-scalability-design.md`)
 - **«нормализация code»** → обогащение 357 KYK
+- **«поговорим про AI»** → анализ разговоров (STT+скоринг), RAG по инженерной базе — обсуждали как следующий большой трек
 - или любую другую точку из списка
 
-Все коммиты на main, тесты **116/116** зелёные, прод **https://crmdot.ru** живой.
+Все коммиты на main, тесты **121/121** зелёные, прод **https://crmdot.ru** живой.

@@ -96,17 +96,44 @@ def list_users(current_user: dict = Depends(get_current_user_dep)):
 
     conn = get_db()
     cursor = conn.cursor()
-    cursor.execute(q("SELECT id, username, name, role FROM users ORDER BY name"))
+    # LEFT JOIN clients: users without a binding (admin/manager/employee) get
+    # NULL client_id / client_name instead of disappearing from the list.
+    cursor.execute(
+        q(
+            """
+            SELECT u.id, u.username, u.name, u.role, u.client_id, c.name
+            FROM users u
+            LEFT JOIN clients c ON c.id = u.client_id
+            ORDER BY u.name
+            """
+        )
+    )
     rows = cursor.fetchall()
     conn.close()
 
-    return [{"id": r[0], "username": r[1], "name": r[2], "role": r[3]} for r in rows]
+    return [
+        {
+            "id": r[0],
+            "username": r[1],
+            "name": r[2],
+            "role": r[3],
+            "client_id": r[4],
+            "client_name": r[5],
+        }
+        for r in rows
+    ]
 
 
 @router.post("/api/users")
 def create_user(data: UserCreate, current_user: dict = Depends(get_current_user_dep)):
     if current_user["role"] != "admin":
         raise HTTPException(status_code=403, detail="Admin required")
+
+    # A client-role user MUST be bound to a company. Other roles ignore client_id.
+    if data.role == "client" and not data.client_id:
+        raise HTTPException(
+            status_code=400, detail="Укажите компанию (client_id) для пользователя-клиента."
+        )
 
     conn = get_db()
     cursor = conn.cursor()
@@ -116,11 +143,18 @@ def create_user(data: UserCreate, current_user: dict = Depends(get_current_user_
         cursor.execute(
             q(
                 """
-                INSERT INTO users (username, password_hash, name, role, created_at)
-                VALUES (%s, %s, %s, %s, %s) RETURNING id
+                INSERT INTO users (username, password_hash, name, role, client_id, created_at)
+                VALUES (%s, %s, %s, %s, %s, %s) RETURNING id
                 """
             ),
-            (data.username, hash_password(data.password), data.name, data.role, now),
+            (
+                data.username,
+                hash_password(data.password),
+                data.name,
+                data.role,
+                data.client_id,
+                now,
+            ),
         )
         conn.commit()
         uid = get_last_id(cursor)
@@ -129,8 +163,22 @@ def create_user(data: UserCreate, current_user: dict = Depends(get_current_user_
         conn.close()
         raise HTTPException(status_code=400, detail=f"Username already exists or invalid data: {e}")
 
+    # Resolve client_name for the response (None is fine for unbound users).
+    client_name = None
+    if data.client_id:
+        cursor.execute(q("SELECT name FROM clients WHERE id = %s"), (data.client_id,))
+        row = cursor.fetchone()
+        client_name = row[0] if row else None
+
     conn.close()
-    return {"id": uid, "username": data.username, "name": data.name, "role": data.role}
+    return {
+        "id": uid,
+        "username": data.username,
+        "name": data.name,
+        "role": data.role,
+        "client_id": data.client_id,
+        "client_name": client_name,
+    }
 
 
 @router.delete("/api/users/{user_id}")

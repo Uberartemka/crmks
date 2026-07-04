@@ -1,19 +1,49 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useUsersStore } from '@/stores/users'
+import { useClientsStore } from '@/stores/clients'
+import { toast } from '@/plugins/toast'
+import BaseButton from '@/components/ui/BaseButton.vue'
 import { Plus, X } from 'lucide-vue-next'
 
 const store = useUsersStore()
-onMounted(() => store.load())
+const clientsStore = useClientsStore()
+onMounted(() => {
+  store.load()
+  clientsStore.load()
+})
 
 const modalOpen = ref(false)
-const err = ref('')
-const form = ref({ username: '', name: '', password: '', role: 'employee' })
+const form = ref({
+  username: '',
+  name: '',
+  password: '',
+  role: 'employee' as 'employee' | 'manager' | 'admin' | 'client',
+  client_id: null as number | null,
+})
+
+// Show the company picker only for the client role.
+const isClientRole = computed(() => form.value.role === 'client')
+
+const ROLE_LABELS: Record<string, string> = {
+  employee: 'Сотрудник',
+  manager: 'Менеджер',
+  admin: 'Администратор',
+  client: 'Клиент',
+}
+
+function openModal() {
+  form.value = { username: '', name: '', password: '', role: 'employee', client_id: null }
+  modalOpen.value = true
+}
 
 async function save() {
-  err.value = ''
   if (!form.value.username.trim() || !form.value.name.trim() || !form.value.password.trim()) {
-    err.value = 'Заполните все поля'
+    toast.error('Заполните все поля')
+    return
+  }
+  if (isClientRole.value && !form.value.client_id) {
+    toast.error('Выберите компанию для пользователя-клиента')
     return
   }
   try {
@@ -22,11 +52,13 @@ async function save() {
       name: form.value.name.trim(),
       password: form.value.password,
       role: form.value.role,
+      // Send client_id only for the client role; keep null otherwise.
+      client_id: isClientRole.value ? form.value.client_id : null,
     })
+    toast.success('Сотрудник добавлен')
     modalOpen.value = false
-    form.value = { username: '', name: '', password: '', role: 'employee' }
   } catch (e: any) {
-    err.value = e?.response?.data?.detail ?? 'Ошибка создания'
+    toast.error(e?.response?.data?.detail ?? 'Ошибка создания')
   }
 }
 </script>
@@ -35,9 +67,9 @@ async function save() {
   <div class="p-6 space-y-6">
     <div class="flex items-center justify-between">
       <h1 class="text-3xl font-extrabold font-bebas tracking-wide">Персонал</h1>
-      <button class="btn-primary text-sm" @click="modalOpen = true">
-        <Plus :size="14" /> Добавить сотрудника
-      </button>
+      <BaseButton variant="primary" @click="openModal">
+        <Plus :size="14" class="mr-1" /> Добавить сотрудника
+      </BaseButton>
     </div>
 
     <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
@@ -46,15 +78,17 @@ async function save() {
           <tr>
             <th class="px-4 py-3 text-left">ФИО</th>
             <th class="px-4 py-3 text-left">Должность</th>
-            <th class="px-4 py-3 text-left">Email</th>
+            <th class="px-4 py-3 text-left">Логин</th>
+            <th class="px-4 py-3 text-left">Компания</th>
             <th class="px-4 py-3 text-center">Статус</th>
           </tr>
         </thead>
         <tbody class="divide-y divide-slate-100">
           <tr v-for="e in store.list" :key="e.id" class="hover:bg-slate-50 transition">
             <td class="px-4 py-3 font-bold text-neutral-900">{{ e.name }}</td>
-            <td class="px-4 py-3 text-xs">{{ e.role }}</td>
+            <td class="px-4 py-3 text-xs">{{ ROLE_LABELS[e.role] ?? e.role }}</td>
             <td class="px-4 py-3 text-xs text-neutral-500">{{ e.username }}</td>
+            <td class="px-4 py-3 text-xs text-neutral-700">{{ e.client_name ?? '—' }}</td>
             <td class="px-4 py-3 text-center">
               <span class="px-2 py-1 rounded-full text-[9px] font-bold bg-green-100 text-green-700">Активен</span>
             </td>
@@ -64,11 +98,17 @@ async function save() {
     </div>
 
     <!-- Modal -->
-    <div v-if="modalOpen" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" @click.self="modalOpen = false">
+    <div
+      v-if="modalOpen"
+      class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+      @click.self="modalOpen = false"
+    >
       <div class="card w-full max-w-sm p-4 space-y-3">
         <div class="flex items-center justify-between">
           <h3 class="font-semibold">Новый сотрудник</h3>
-          <button class="btn-ghost !p-1" @click="modalOpen = false"><X :size="16" /></button>
+          <BaseButton variant="ghost" class="!p-1" @click="modalOpen = false">
+            <X :size="16" />
+          </BaseButton>
         </div>
 
         <input v-model="form.username" class="input" placeholder="Логин (email)" />
@@ -78,13 +118,17 @@ async function save() {
           <option value="employee">Сотрудник</option>
           <option value="manager">Менеджер</option>
           <option value="admin">Администратор</option>
+          <option value="client">Клиент</option>
         </select>
 
-        <p v-if="err" class="text-xs text-red-600">{{ err }}</p>
+        <select v-if="isClientRole" v-model="form.client_id" class="input">
+          <option :value="null" disabled>Выберите компанию…</option>
+          <option v-for="c in clientsStore.list" :key="c.id" :value="c.id">{{ c.name }}</option>
+        </select>
 
         <div class="flex gap-2 justify-end">
-          <button class="btn-ghost text-sm" @click="modalOpen = false">Отмена</button>
-          <button class="btn-primary text-sm" @click="save">Сохранить</button>
+          <BaseButton variant="ghost" @click="modalOpen = false">Отмена</BaseButton>
+          <BaseButton variant="primary" @click="save">Сохранить</BaseButton>
         </div>
       </div>
     </div>
