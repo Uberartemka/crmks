@@ -13,8 +13,8 @@ TEST_DATABASE_URL = os.getenv(
 )
 
 # Tables that the watchdog/migration tests touch. Truncated before each test.
-# Order matters: products references categories/brands, list dependents first.
-_TABLES_TO_CLEAR = ["proposal_items", "proposals", "clients", "users", "products", "categories", "brands", "sku_catalog", "kyk_products_import", "job_queue"]
+# Order matters: dependents first (FK/CASCADE). Chat tables added in migration 009.
+_TABLES_TO_CLEAR = ["read_state", "messages", "channel_members", "channels", "proposal_items", "proposals", "clients", "users", "products", "categories", "brands", "sku_catalog", "kyk_products_import", "job_queue"]
 
 
 def _connect():
