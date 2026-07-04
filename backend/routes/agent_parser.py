@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 from db import _use_pg, get_db, q
 from auth_deps import get_current_user
 
-from routes.ai_claude_agent import call_claude
+from routes.ai_claude_agent import call_claude, JSON_SYSTEM_PROMPT
 from utils.ai_utils import parse_ai_json
 
 logger = logging.getLogger("HHB_B2B")
@@ -139,7 +139,7 @@ async def score_company(company: dict) -> dict:
 Не добавляй если: магазин бытовой техники, ресторан, парикмахерская, IT компания."""
 
     try:
-        result = await call_claude(prompt)
+        result = await call_claude(prompt, system=JSON_SYSTEM_PROMPT)
         return parse_ai_json(result)
     except Exception as e:
         logger.error(f"[score_company] Ошибка при оценке компании: {e}")

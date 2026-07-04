@@ -46,9 +46,11 @@ def call_claude_fn(monkeypatch):
         async def __aexit__(self, *a):
             return False
         async def post(self, url, **kw):
-            # Record which provider endpoint was hit.
+            # Record which provider endpoint was hit + the JSON payload sent.
+            payload = kw.get("json", {})
             if "open.bigmodel.cn" in url:
                 calls["providers_hit"].append("glm")
+                calls["last_glm_payload"] = payload
                 # Echo a choices-style payload.
                 return _FakeResponse({"choices": [{"message": {"content": "GLM-ответ"}}]})
             if "api.anthropic.com" in url:
@@ -56,6 +58,7 @@ def call_claude_fn(monkeypatch):
                 return _FakeResponse({"content": [{"text": "Claude-ответ"}]})
             if "api.cloudflare.com" in url:
                 calls["providers_hit"].append("kimi")
+                calls["last_kimi_payload"] = payload
                 return _FakeResponse({"result": {"response": "Kimi-ответ"}})
             calls["providers_hit"].append("unknown:" + url)
             return _FakeResponse({}, status=500)
@@ -83,6 +86,16 @@ def test_glm_is_tried_first_when_key_set(call_claude_fn, monkeypatch):
     result = _run(call_claude("test prompt"))
     assert result == "GLM-ответ"
     assert calls["providers_hit"] == ["glm"], f"expected only GLM, got {calls['providers_hit']}"
+
+
+def test_glm_payload_includes_max_tokens(call_claude_fn, monkeypatch):
+    """The GLM request payload must include max_tokens (speed optimization)."""
+    call_claude, calls = call_claude_fn
+    monkeypatch.setenv("GLM_API_KEY", "test-glm-key")
+    _run(call_claude("test prompt"))
+    payload = calls.get("last_glm_payload", {})
+    assert "max_tokens" in payload, "max_tokens missing from GLM payload"
+    assert payload["max_tokens"] == 1024
 
 
 def test_falls_back_to_anthropic_when_glm_fails(call_claude_fn, monkeypatch):
