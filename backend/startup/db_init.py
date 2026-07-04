@@ -99,6 +99,7 @@ def init_catalog_tables() -> None:
                     updated_at VARCHAR(100)
                 )
                 """
+            )
             # ===== Tables that reference users, clients, parsed_leads =====
             cursor.execute(
                 """
