@@ -84,8 +84,16 @@ WebSocket. WebSocket остаётся тонким каналом «только
 # чтобы вставка Redis-прослойки была однострочной.
 ```
 
-`_fanout()` — единственная функция, которую затронет multi-worker. Это
+`_fanout()` — точка расширения, которую затронет multi-worker. Это
 специально изолированная граница.
+
+> **Второй in-memory компонент — per-user rate limiter — сознательно НЕ
+> in-memory, а сразу на Redis** (см. Секцию 6). `CONNECTIONS` невозможно
+> вынести в Redis (это живые WS-объекты, не данные), поэтому он остаётся
+> локальным с последующим pub/sub-мостом. А вот счётчик сообщений — это просто
+> число, и его логично держать в Redis с рождения, чтобы при `web:N` лимит
+> «20 msg/мин» не превратился в «20×N». Так известных пробелов до `web:N`
+> остаётся ровно один (`_fanout`), и он явный.
 
 ---
 
@@ -125,6 +133,11 @@ WebSocket. WebSocket остаётся тонким каналом «только
 `information_schema`-проверки). Сиквел ниже — целевой PG-вид; runner обернёт в
 idempotent-обёртки.
 
+> **⚠️ Зависимость от версии PG.** `UNIQUE NULLS NOT DISTINCT` требует
+> **PostgreSQL 15+** (выпущен конец 2022). Перед применением миграции 009 —
+> проверить на деплое: `SELECT version();`. Если PG 13/14 — использовать
+> fallback ниже. Это надо сделать на этапе плана, не на этапе применения.
+
 ```sql
 CREATE TABLE IF NOT EXISTS channels (
     id              SERIAL PRIMARY KEY,
@@ -133,11 +146,16 @@ CREATE TABLE IF NOT EXISTS channels (
     department_role TEXT NULL,                      -- для type='department'
     created_by      INTEGER REFERENCES users(id) ON DELETE SET NULL,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
-    archived        BOOLEAN NOT NULL DEFAULT false,
-    -- ровно один department-канал на роль; ровно один general-канал на систему
-    CONSTRAINT channels_unique UNIQUE NULLS NOT DISTINCT (type, department_role)
+    archived        BOOLEAN NOT NULL DEFAULT false
+    -- уникальность department-каналов: см. варианты ниже по версии PG
 );
 CREATE INDEX IF NOT EXISTS idx_channels_type ON channels (type);
+-- department: одна роль = один канал
+CREATE UNIQUE INDEX IF NOT EXISTS idx_channels_department_role_unique
+    ON channels (department_role) WHERE type = 'department';
+-- general: ровно один (department_role IS NULL у general не мешает partial index)
+CREATE UNIQUE INDEX IF NOT EXISTS idx_channels_general_unique
+    ON channels (id) WHERE type = 'general';
 
 CREATE TABLE IF NOT EXISTS channel_members (
     channel_id  INTEGER NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
@@ -151,7 +169,7 @@ CREATE TABLE IF NOT EXISTS messages (
     id          BIGSERIAL PRIMARY KEY,
     channel_id  INTEGER NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
     author_id   INTEGER NOT NULL REFERENCES users(id) ON DELETE SET NULL,
-    content     TEXT NOT NULL,
+    content     TEXT NOT NULL CHECK (char_length(content) <= 10000),
     reply_to_id BIGINT NULL REFERENCES messages(id) ON DELETE SET NULL,
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
     edited_at   TIMESTAMPTZ NULL,
@@ -159,6 +177,18 @@ CREATE TABLE IF NOT EXISTS messages (
 );
 CREATE INDEX IF NOT EXISTS idx_messages_channel_created
     ON messages (channel_id, created_at DESC);
+```
+
+**Альтернатива для PG 15+ (если проверка версии подтвердила):** вместо двух
+partial-индексов выше — один table-level констрейнт:
+```sql
+ALTER TABLE channels
+    ADD CONSTRAINT channels_unique UNIQUE NULLS NOT DISTINCT (type, department_role);
+```
+`NULLS NOT DISTINCT` тракует NULL-значения как равные для уникальности, что и
+даёт «ровно один general-канал» (где `department_role IS NULL`). На PG 13/14
+это синтаксическая ошибка — поэтому миграция 009 использует partial-index
+вариант как переносимый. На PG 15+ можно мигрировать на констрейнт.
 
 CREATE TABLE IF NOT EXISTS read_state (
     user_id              INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -185,6 +215,14 @@ CREATE TABLE IF NOT EXISTS read_state (
   read_state; удаление юзера обнуляет `author_id` (SET NULL), не убивая историю.
 - **REAL `TIMESTAMPTZ`** (в отличие от `VARCHAR` в старых таблицах notes/tasks).
   Чат — новая подсистема, делаем правильно с рождения.
+- **`CHECK (char_length(content) <= 10000)`** — верхняя граница на сообщение.
+  Без неё единственный вектор (до Подсистемы II) — вставка гигантского блока:
+  случайно вставленный лог, скопированная таблица на 500 КБ. Это не только
+  раздувает БД, но и летит **целиком в WS-payload всем участникам канала
+  синхронно** — при паре таких сообщений фан-аут ощутимо проседает. Двойная
+  защита: CHECK на уровне таблицы + `maxlength="10000"` на `<textarea>` фронта.
+  10 000 символов ≈ 6-8 абзацев текста — с запасом для любого осмысленного
+  сообщения, но достаточно мало, чтобы не стать DoS-вектором.
 
 ### Засев `general`-канала
 
@@ -247,10 +285,13 @@ ticket = secrets.token_urlsafe(32)
 redis.setex(f"chat:ws-ticket:{ticket}", 30, str(user_id))
 
 # WS /ws/chat?ticket=...
-user_id = redis.get(f"chat:ws-ticket:{ticket}")
+# GETDEL — атомарная операция (Redis 6.2+). get+delete в две команды создают
+# окно гонки: два одновременных хендшейка с одним тикетом (дублирующийся
+# реконнект с фронта) оба увидят user_id до того, как первый вызовет delete.
+# GETDEL схлопывает get+delete в одну команду — гонка исчезает по конструкции.
+user_id = redis.getdel(f"chat:ws-ticket:{ticket}")
 if not user_id:
     await ws.close(code=4401); return
-redis.delete(f"chat:ws-ticket:{ticket}")   # одноразовый
 CONNECTIONS[int(user_id)].add(ws)
 ```
 
@@ -340,7 +381,25 @@ async def _fanout(channel_id: int, payload: dict, exclude_user: int | None = Non
   новом сообщении, lazy-load вверх при скролле.
 - `MessageInput.vue` — текстареа + кнопка отправки (`BaseButton`). Enter —
   отправить, Shift+Enter — перенос. Эмитит typing-индикатор.
+  `maxlength="10000"` (дублирует БД-CHECK — даёт юзеру визуальный лимит).
 - `TypingIndicator.vue` — «Анна печатает…» под полем ввода.
+
+### ⚠️ Рендеринг контента — только текстовая интерполяция, никогда `v-html`
+
+`content` — это `TEXT`, который один сотрудник написал и который рендерится в
+браузере всех остальных участников канала. **`v-html` здесь запрещён с рождения**
+— это мгновенный XSS на ровном месте: достаточно вставить
+`<img src=x onerror=...>`, и скрипт выполнится у всех коллег.
+
+`MessageList` рендерит контент **только** через текстовую интерполяцию
+`{{ message.content }}` (Vue экранирует HTML по умолчанию). Переносы строк —
+через CSS `white-space: pre-wrap` или `style="white-space: pre-wrap"`, а не
+через `v-html`/`<br>`-подстановки.
+
+Это правило зафиксировано сейчас, чтобы через месяц — когда в Подсистеме III
+появится rich-content — никто не решил «проще вставить `<a href>` прямо в
+`content` и сделать `v-html`». Rich-контент будет **отдельным полем/типом
+сообщения** (`message_type: 'text' | 'document_link'`), см. «Связь с подсистемами».
 
 ### Дизайн-система
 
@@ -358,13 +417,52 @@ async def _fanout(channel_id: int, payload: dict, exclude_user: int | None = Non
 | Получатель офлайн | Сообщение в PG; `unread` обновится при его подключении |
 | Удаление сообщения | Soft delete (`deleted_at`), в ленте — «сообщение удалено» |
 | Редактирование | Только автор; помечается `(ред.)`; хранится последняя версия |
-| Спам | Reusing `rate_limiter.py` (in-memory): ~20 msg/мин на юзера, 429 при превышении |
+| Спам | **Новый per-user Redis-лимитер** для чата (НЕ `rate_limiter.py` — тот IP-based, см. ниже): ~20 msg/мин на юзера, 429 при превышении |
+| Попытка выйти/удалить участника из `general`/`department` | **400** — членство вычисляемое, строк в `channel_members` нет; редактировать напрямую нельзя (только `topic`) |
 | Архивация канала | `archived=true`; не принимает новые сообщения (400), остаётся в истории |
 | Не-участник пишет в topic | 403 на `POST /messages` |
 | Client-роль стучится к эндпоинту | 403 (проверка на каждом эндпоинте) |
 | Несуществующий/архивный канал в WS-fanout | Пропуск (no-op) |
 | ping без pong 60с | Сервер закрывает соединение, чистит `CONNECTIONS` |
 | Мёртвый WS в реестре | Прибирается heartbeat-циклом и при ошибке `send_json` |
+
+### Per-user лимит сообщений (новый, на Redis)
+
+Существующий `rate_limiter.py` — это **IP-based middleware** (`_store: ip:path ->
+timestamps`). Для чата он не годится по двум причинам:
+
+1. **Не тот ключ.** Лимит «20 msg/мин на юзера» требует ключа по `user_id`, а
+   не по IP. Офис за одним NAT делит общий IP-лимит — один спамер глушит весь
+   офис, и наоборот, офис из 20 менеджеров укладывается в один общий лимит.
+2. **Та же single-worker ловушка, что `CONNECTIONS`.** `_store` — in-memory
+   `defaultdict`. При переходе на `web:N` лимит «20 msg/мин» фактически станет
+   «20×N msg/мин», потому что у каждого воркера свой счётчик.
+
+Поэтому для чата — **отдельный per-user лимитер на Redis** (`INCR` + `EXPIRE`),
+который работает корректно и на одном воркере, и на N, без архитектурных
+изменений при масштабировании:
+
+```python
+# backend/chat_rate_limit.py
+def _allow_message(user_id: int) -> bool:
+    """Per-user, sliding-window-free fixed window: ~20 msg/min.
+    Atomic INCR + first-call EXPIRE — корректно под N воркерами."""
+    r = _get_redis()                          # reuse pdf_service client
+    key = f"chat:rl:{user_id}:{int(time.time() // 60)}"   # минутный бакет
+    count = r.incr(key)
+    if count == 1:
+        r.expire(key, 120)                    # TTL > окна, чтобы бакет сам чистился
+    return count <= 20
+```
+
+`POST /api/chat/channels/{id}/messages` вызывает `_allow_message(user_id)` до
+записи в БД; при превышении — `429 Too Many Requests` с `Retry-After`.
+
+**Почему фиксированное окно, а не sliding window:** для лимита чата достаточно
+приблизительной защиты от флуда; sliding window через `ZREMRANGEBYSCORE`+`ZADD`
+точнее, но дороже и сложнее. Фиксированный минутный бакет на `INCR` — 2 команды,
+атомарных, дешёвых, и хорошо ложится на Redis. Граничный эффект (всплеск на
+стыке двух минут) для чата некритичен.
 
 ### Согласованность REST + WS
 
@@ -439,7 +537,18 @@ smoke-тестирование (логин двумя юзерами в двух
 
 - **Подсистема III (документооборот):** документ можно «поделиться в канал» —
   создаст сообщение с rich-content-ссылкой на документ. Канал как место
-  обсуждения документа.
+  обсуждения документа. **Важно:** rich-контент НЕ вкладывается HTML'ем в
+  `content` (см. запрет `v-html` в Секции 5). Вместо этого в `messages`
+  добавится колонка `message_type TEXT DEFAULT 'text'` (`'text' | 'document_link'`)
+  и опциональное `payload JSONB` со структурированной ссылкой
+  (`{document_id, title, status}`). Фронт рендерит `document_link` отдельным
+  типизированным компонентом (`<DocumentLinkCard :payload="msg.payload" />`),
+  а не интерполирует HTML. Так XSS-поверхность остаётся нулевой. В Подсистеме I
+  эти колонки **не создаём** — придут миграцией III.
+
+- **Мультитенантность (Plan 2):** `tenant_id` добавится в channels/messages/
+  channel_members тем же чек-листом из соответствующей спеки. RLS-политики
+  ложатся на чат без изменений паттерна.
 - **Мультитенантность (Plan 2):** `tenant_id` добавится в channels/messages/
   channel_members тем же чек-листом из соответствующей спеки. RLS-политики
   ложатся на чат без изменений паттерна.
