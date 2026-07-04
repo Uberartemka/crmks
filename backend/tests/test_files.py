@@ -6,7 +6,7 @@ import psycopg2
 import pytest
 from fastapi import HTTPException
 
-from services.file_service import is_allowed, sanitize_name
+from services.file_service import is_allowed, sanitize_name, save_upload
 
 
 def _run(coro):
@@ -73,3 +73,47 @@ def test_sanitize_name_strips_quotes_and_control(seeded_files):
     assert sanitize_name("test\r\nX-Evil: 1.pdf") == "testX-Evil: 1.pdf"
     # empty after sanitize → fallback
     assert sanitize_name('""') == "file"
+
+
+def _make_upload(content: bytes, filename: str, content_type: str):
+    """Build a minimal fastapi.UploadFile substitute for tests."""
+    from io import BytesIO
+
+    class _FakeUpload:
+        def __init__(self, content, filename, content_type):
+            self.file = BytesIO(content)
+            self.filename = filename
+            self.content_type = content_type
+
+        async def read(self, n: int = -1):
+            return self.file.read(n) if n != -1 else self.file.read()
+
+    return _FakeUpload(content, filename, content_type)
+
+
+def test_save_upload_pdf_returns_metadata(seeded_files):
+    # Minimal valid PDF header so python-magic detects application/pdf
+    pdf_bytes = b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Count 0/Kids[]>>endobj\nxref\n0 3\n0000000000 65535 f \ntrailer<</Size 3/Root 1 0 R>>\nstartxref\n0\n%%EOF"
+    upload = _make_upload(pdf_bytes, "Договор.pdf", "application/pdf")
+    meta = _run(save_upload(upload=upload, current_user={"id": 1, "role": "manager"}))
+    assert meta["mime_type"] == "application/pdf"
+    assert meta["size_bytes"] == len(pdf_bytes)
+    assert meta["is_image"] is False
+    assert meta["original_name"] == "Договор.pdf"
+    assert meta["id"] is not None
+    assert meta["url"] == f"/api/files/{meta['id']}"
+    # storage_path follows YYYY/MM/<token>.ext
+    assert meta["_storage_path"].count("/") == 2
+    assert meta["_storage_path"].endswith(".pdf")
+    # physical file exists
+    assert os.path.exists(os.path.join(seeded_files, meta["_storage_path"]))
+
+
+def test_save_upload_exceeds_size_limit_413(seeded_files, monkeypatch):
+    # patch MAX_SIZE down to 10 bytes to avoid generating 100MB
+    import services.file_service as svc
+    monkeypatch.setattr(svc, "MAX_SIZE_BYTES", 10)
+    upload = _make_upload(b"x" * 100, "big.pdf", "application/pdf")
+    with pytest.raises(HTTPException) as exc:
+        _run(save_upload(upload=upload, current_user={"id": 1, "role": "manager"}))
+    assert exc.value.status_code == 413
