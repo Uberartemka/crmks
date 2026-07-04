@@ -143,3 +143,33 @@ def test_list_messages_includes_reply_message(seeded_msgs):
     assert hist[0]["reply_message"]["author_name"] == "Админ"
     # parent message has no reply_message of its own
     assert hist[1]["reply_message"] is None
+
+
+def test_send_message_with_valid_reply_returns_reply_message(seeded_msgs):
+    parent = _run(send_message(
+        channel_id=2,
+        data=MessageCreate(content="parent"),
+        current_user={"id": 1, "role": "manager"},
+    ))
+    out = _run(send_message(
+        channel_id=2,
+        data=MessageCreate(content="reply", reply_to_id=parent["id"]),
+        current_user={"id": 1, "role": "manager"},
+    ))
+    assert out["reply_to_id"] == parent["id"]
+    # response must include the populated reply_message (no extra request needed)
+    assert out["reply_message"] is not None
+    assert out["reply_message"]["id"] == parent["id"]
+    assert out["reply_message"]["content"] == "parent"
+
+
+def test_send_message_reply_to_nonexistent_parent_gracefully_drops_reply(seeded_msgs):
+    # parent id 999999 does not exist → graceful: send as plain message
+    out = _run(send_message(
+        channel_id=2,
+        data=MessageCreate(content="orphan reply", reply_to_id=999999),
+        current_user={"id": 1, "role": "manager"},
+    ))
+    assert out["reply_to_id"] is None
+    assert out["reply_message"] is None
+    assert out["content"] == "orphan reply"

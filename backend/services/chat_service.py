@@ -245,15 +245,53 @@ async def send_message(
     try:
         cur = conn.cursor()
         _require_channel_access(cur, channel_id, current_user)
+
+        # Validate reply parent: must exist, not be deleted, and be in the same
+        # channel. Graceful degradation — if invalid, silently drop reply_to_id
+        # and store as a plain message (user doesn't lose their text).
+        reply_to_id = data.reply_to_id
+        if reply_to_id is not None:
+            cur.execute(
+                q(
+                    "SELECT 1 FROM messages "
+                    "WHERE id = %s AND channel_id = %s AND deleted_at IS NULL"
+                ),
+                (reply_to_id, channel_id),
+            )
+            if cur.fetchone() is None:
+                reply_to_id = None
+
         cur.execute(
             q(
                 """INSERT INTO messages (channel_id, author_id, content, reply_to_id)
                    VALUES (%s, %s, %s, %s) RETURNING id, created_at"""
             ),
-            (channel_id, current_user["id"], data.content, data.reply_to_id),
+            (channel_id, current_user["id"], data.content, reply_to_id),
         )
         mid, created_at = cur.fetchone()
         conn.commit()
+
+        # If we kept the reply, fetch the parent's content/author for the
+        # response so the sender (and WS fan-out) get a ready-to-render quote.
+        reply_message = None
+        if reply_to_id is not None:
+            cur.execute(
+                q(
+                    """SELECT m.id, m.content, m.author_id, u.name
+                       FROM messages m LEFT JOIN users u ON u.id = m.author_id
+                       WHERE m.id = %s"""
+                ),
+                (reply_to_id,),
+            )
+            prow = cur.fetchone()
+            if prow:
+                reply_message = {
+                    "id": prow[0],
+                    "content": prow[1],
+                    "author_id": prow[2],
+                    "author_name": prow[3],
+                }
+
         return {
             "id": mid,
             "channel_id": channel_id,
@@ -261,7 +299,8 @@ async def send_message(
             "author_username": current_user.get("username"),
             "author_name": current_user.get("name"),
             "content": data.content,
-            "reply_to_id": data.reply_to_id,
+            "reply_to_id": reply_to_id,
+            "reply_message": reply_message,
             "created_at": created_at.isoformat() if created_at else None,
             "edited_at": None,
             "deleted_at": None,
