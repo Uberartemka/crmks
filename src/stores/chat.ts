@@ -46,8 +46,11 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
-  async function sendMessage(channelId: number, content: string) {
-    const { data } = await chatApi.sendMessage(channelId, { content })
+  async function sendMessage(channelId: number, content: string, replyToId?: number) {
+    const { data } = await chatApi.sendMessage(channelId, {
+      content,
+      reply_to_id: replyToId ?? null,
+    })
     // optimistic: append locally; WS will broadcast to others
     messagesByChannel.value[channelId] = [...(messagesByChannel.value[channelId] ?? []), data]
     // clear unread for self

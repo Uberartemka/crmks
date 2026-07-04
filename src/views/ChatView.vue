@@ -46,8 +46,18 @@ onMounted(async () => {
 })
 
 function onSend(event: any) {
-  const { content, roomId } = event.detail[0]
-  store.sendMessage(Number(roomId), content)
+  const { content, roomId, replyMessage } = event.detail[0]
+  // replyMessage comes from vue-advanced-chat's reply slot (set by onReply);
+  // its _id is the message id we forward as reply_to_id.
+  const replyToId = replyMessage?._id ? Number(replyMessage._id) : undefined
+  store.sendMessage(Number(roomId), content, replyToId)
+}
+
+function onReply(_event: any) {
+  // vue-advanced-chat handles the reply UX itself: it places the selected
+  // message into a reply-slot above the input with a cancel button. We don't
+  // need to manage state here — on send, the replyMessage payload is passed
+  // back via the send-message event (handled in onSend).
 }
 
 async function onFetch(event: any) {
@@ -96,6 +106,7 @@ async function onChannelCreated() {
       @send-message="onSend"
       @fetch-messages="onFetch"
       @add-room="openCreateModal"
+      @message-reply="onReply"
     />
     <CreateChannelModal
       v-if="showCreateModal"
