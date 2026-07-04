@@ -1,6 +1,12 @@
-import { toast as vToast } from 'vue-toastification'
+import { useToast } from 'vue-toastification'
 
-// Re-export with typed API. Config is registered in main.ts.
+// vue-toastification@2.0.0-rc.5 exposes `useToast` (Composition API), not a
+// bare `toast` export. Calling useToast() outside a component falls back to
+// the global event bus, which gives a working toast interface app-wide.
+// We wrap it once into a simple { success/error/info/warning(msg) } API so
+// call sites don't need to be inside setup().
+const vToast = useToast()
+
 export const toast = {
   success: (msg: string) => vToast.success(msg),
   error: (msg: string) => vToast.error(msg),
