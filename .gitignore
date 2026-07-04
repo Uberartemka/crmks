@@ -24,3 +24,4 @@ backend/app.log
 # Сопутствующие сайты клиентов — отдельные репозитории, не часть CRM.
 # Поддерживаемые сейчас: kykbrg-site (KYK Bearings).
 /kykbrg-site
+.superpowers/
