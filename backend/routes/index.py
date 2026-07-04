@@ -348,6 +348,11 @@ def register_routes(app) -> None:
 
     app.include_router(orders_router)
 
+    # Chat (messaging subsystem I)
+    from routes.chat import router as chat_router
+
+    app.include_router(chat_router)
+
     from routes.tasks_legacy import router as tasks_legacy_router
 
     app.include_router(tasks_legacy_router)
