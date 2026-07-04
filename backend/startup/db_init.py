@@ -75,6 +75,7 @@ def init_catalog_tables() -> None:
                     password_hash VARCHAR(256) NOT NULL,
                     name VARCHAR(200) NOT NULL,
                     role VARCHAR(50) NOT NULL DEFAULT 'employee',
+                    client_id INTEGER REFERENCES clients(id) ON DELETE SET NULL,
                     created_at VARCHAR(100)
                 )
                 """
@@ -98,7 +99,6 @@ def init_catalog_tables() -> None:
                     updated_at VARCHAR(100)
                 )
                 """
-            )
             # ===== Tables that reference users, clients, parsed_leads =====
             cursor.execute(
                 """
@@ -230,6 +230,33 @@ def init_catalog_tables() -> None:
                 )
                 """
             )
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS defects (
+                    id          SERIAL PRIMARY KEY,
+                    client_id   INTEGER REFERENCES clients(id) ON DELETE CASCADE,
+                    created_by  INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                    equipment   VARCHAR(300) NOT NULL,
+                    bearing     VARCHAR(300),
+                    description TEXT,
+                    status      VARCHAR(50) DEFAULT 'new',
+                    action      TEXT,
+                    detected_at VARCHAR(100),
+                    created_at  VARCHAR(100),
+                    updated_at  VARCHAR(100)
+                )
+                """
+            )
+            cursor.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_defects_client ON defects (client_id)
+                """
+            )
+            cursor.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_defects_status ON defects (status)
+                """
+            )
         else:
             cursor.execute(
                 """
@@ -307,6 +334,7 @@ def init_catalog_tables() -> None:
                     password_hash TEXT NOT NULL,
                     name TEXT NOT NULL,
                     role TEXT NOT NULL DEFAULT 'employee',
+                    client_id INTEGER,
                     created_at TEXT
                 )
                 """
@@ -415,6 +443,33 @@ def init_catalog_tables() -> None:
                     created_at TEXT,
                     updated_at TEXT
                 )
+                """
+            )
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS defects (
+                    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                    client_id   INTEGER,
+                    created_by  INTEGER,
+                    equipment   TEXT NOT NULL,
+                    bearing     TEXT,
+                    description TEXT,
+                    status      TEXT DEFAULT 'new',
+                    action      TEXT,
+                    detected_at TEXT,
+                    created_at  TEXT,
+                    updated_at  TEXT
+                )
+                """
+            )
+            cursor.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_defects_client ON defects (client_id)
+                """
+            )
+            cursor.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_defects_status ON defects (status)
                 """
             )
 

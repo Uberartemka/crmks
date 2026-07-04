@@ -24,7 +24,7 @@ def get_current_user(request: Request) -> dict:
     conn = get_db()
     cursor = conn.cursor()
     cursor.execute(
-        q("SELECT id, username, name, role FROM users WHERE id = %s"),
+        q("SELECT id, username, name, role, client_id FROM users WHERE id = %s"),
         (user_id,),
     )
     row = cursor.fetchone()
@@ -33,7 +33,13 @@ def get_current_user(request: Request) -> dict:
     if not row:
         raise HTTPException(status_code=401, detail="User not found")
 
-    return {"id": row[0], "username": row[1], "name": row[2], "role": row[3]}
+    return {
+        "id": row[0],
+        "username": row[1],
+        "name": row[2],
+        "role": row[3],
+        "client_id": row[4],
+    }
 
 
 async def get_current_user_async(request: Request) -> dict:
@@ -55,12 +61,18 @@ async def get_current_user_async(request: Request) -> dict:
     if _use_pg:
         try:
             row = await async_fetch_one(
-                q("SELECT id, username, name, role FROM users WHERE id = %s"),
+                q("SELECT id, username, name, role, client_id FROM users WHERE id = %s"),
                 (user_id,),
             )
             if not row:
                 raise HTTPException(status_code=401, detail="User not found")
-            return {"id": row[0], "username": row[1], "name": row[2], "role": row[3]}
+            return {
+                "id": row[0],
+                "username": row[1],
+                "name": row[2],
+                "role": row[3],
+                "client_id": row[4],
+            }
         except RuntimeError:
             # Async pool not ready — fallback to sync
             pass

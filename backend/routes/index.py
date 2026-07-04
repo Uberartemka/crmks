@@ -51,7 +51,10 @@ def read_root():
 def login(data: UserLogin):
     conn = get_db()
     cursor = conn.cursor()
-    cursor.execute(q("SELECT id, password_hash, name, role FROM users WHERE username = %s"), (data.username,))
+    cursor.execute(
+        q("SELECT id, password_hash, name, role, client_id FROM users WHERE username = %s"),
+        (data.username,),
+    )
     row = cursor.fetchone()
     conn.close()
 
@@ -60,7 +63,16 @@ def login(data: UserLogin):
 
     token = secrets.token_urlsafe(32)
     set_token_sync(token, row[0])
-    return {"token": token, "user": {"id": row[0], "username": data.username, "name": row[2], "role": row[3]}}
+    return {
+        "token": token,
+        "user": {
+            "id": row[0],
+            "username": data.username,
+            "name": row[2],
+            "role": row[3],
+            "client_id": row[4],
+        },
+    }
 
 
 @router.post("/api/auth/logout")
