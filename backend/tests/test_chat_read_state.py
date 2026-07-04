@@ -20,7 +20,7 @@ def seeded_rs(db_conn, monkeypatch):
     for t in ["read_state", "messages", "channel_members", "channels"]:
         cur.execute(f"DROP TABLE IF EXISTS {t} CASCADE")
     cur.execute("DROP TABLE IF EXISTS users CASCADE")
-    cur.execute("CREATE TABLE users (id SERIAL PRIMARY KEY, username TEXT, role TEXT)")
+    cur.execute("CREATE TABLE users (id SERIAL PRIMARY KEY, username TEXT, role TEXT, name TEXT)")
     cur.execute(
         """CREATE TABLE channels (id SERIAL PRIMARY KEY, name TEXT, type TEXT,
         department_role TEXT, created_by INTEGER, created_at TIMESTAMPTZ DEFAULT now(),
@@ -37,7 +37,7 @@ def seeded_rs(db_conn, monkeypatch):
     )
     cur.execute("CREATE TABLE read_state (user_id INTEGER, channel_id INTEGER, last_read_message_id BIGINT DEFAULT 0, PRIMARY KEY (user_id, channel_id))")
     cur.execute("INSERT INTO channels (name,type) VALUES ('G','general')")
-    cur.execute("INSERT INTO users (username,role) VALUES ('a','admin'),('b','manager')")
+    cur.execute("INSERT INTO users (username,role,name) VALUES ('a','admin','Админ'),('b','manager','Менеджер')")
     cur.close()
     TEST_DSN = os.environ.get("TEST_DATABASE_URL", "postgresql://postgres:235813@localhost:5432/hhb_b2b_test")
     monkeypatch.setattr(svc, "get_db", lambda: psycopg2.connect(TEST_DSN))

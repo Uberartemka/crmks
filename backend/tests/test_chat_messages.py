@@ -22,7 +22,7 @@ def seeded_msgs(db_conn, monkeypatch):
     for t in ["read_state", "messages", "channel_members", "channels"]:
         cur.execute(f"DROP TABLE IF EXISTS {t} CASCADE")
     cur.execute("DROP TABLE IF EXISTS users CASCADE")
-    cur.execute("CREATE TABLE users (id SERIAL PRIMARY KEY, username TEXT, role TEXT)")
+    cur.execute("CREATE TABLE users (id SERIAL PRIMARY KEY, username TEXT, role TEXT, name TEXT)")
     cur.execute(
         """CREATE TABLE channels (
         id SERIAL PRIMARY KEY, name TEXT, type TEXT, department_role TEXT,
@@ -43,7 +43,7 @@ def seeded_msgs(db_conn, monkeypatch):
     # general channel; topic #2 where user 1 is member; topic #3 where user 1 is NOT
     cur.execute("INSERT INTO channels (name,type) VALUES ('G','general'), ('T2','topic'), ('T3','topic')")
     cur.execute("INSERT INTO channel_members (channel_id,user_id) VALUES (2,1)")
-    cur.execute("INSERT INTO users (username,role) VALUES ('a','admin'),('b','manager')")
+    cur.execute("INSERT INTO users (username,role,name) VALUES ('a','admin','Админ'),('b','manager','Менеджер')")
     cur.close()
 
     TEST_DSN = os.environ.get("TEST_DATABASE_URL", "postgresql://postgres:235813@localhost:5432/hhb_b2b_test")
