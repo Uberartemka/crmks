@@ -22,6 +22,16 @@
 - **Документооборот со статусами** (черновик→согласование→подписан→архив) —
   Подсистема III, отдельная спека. Здесь — только «файл лежит, на него есть
   ссылка».
+- **Tenant-изоляция файлов.** Мультитенантность в проекте **не реализована**
+  вообще (нет таблицы `tenants`, нет `tenant_id`, нет RLS — спека
+  `2026-07-03-multitenancy-and-scalability-design.md` в статусе Draft, на ревью).
+  Поэтому сейчас файлы изолируются только через `uploaded_by` (owner-check:
+  `uploaded_by == user.id OR role == admin`). **Это сознательное решение, не упущение:**
+  класть `files.tenant_id` сейчас — значит держать колонку NULL во всех строках
+  и потом идти второй миграцией. Когда `tenants` + RLS придут (спека multitenancy),
+  `files` получит `tenant_id` отдельной миграцией, а `get_file` — tenant-check
+  (по цепочке `files.uploaded_by → users.tenant_id`, которая уже образует связь).
+  Связь `uploaded_by → users` закладывается уже сейчас как задел.
 - **Дедупликация файлов** (по sha256 — одна физ.копия на многие записи). Колонка
   `sha256` закладывается, но логика дедупа не делается. Две загрузки = две записи.
 - **Физическое удаление файлов** при удалении записи. Soft-delete только;
@@ -186,16 +196,33 @@ def _generate_thumbnail(src_abs: str) -> str | None:
 ```
 
 **Логика `save_upload` (ключевая функция):**
-1. Считать файл чанками (8KB), параллельно: копить байты на диск во временный
-   путь, считать `size_bytes`, обновлять `sha256` (hashlib).
-2. Если `size_bytes > MAX_SIZE_BYTES` → удалить temp, поднять `HTTPException(413)`.
-3. python-magic `from_buffer(first_chunk)` → настоящий MIME (не доверяем заголовку браузера).
-4. `is_allowed(mime, ext)` → если нет, удалить temp, `HTTPException(415)`.
-5. `storage_path = f"{year}/{month}/{secrets.token_hex(16)}{ext}"`.
-6. `os.rename(temp, MEDIA_ROOT/storage_path)` (атомарно в пределах FS).
-7. Если `mime.startswith("image/")` → `_generate_thumbnail` → `thumbnail_path`.
-8. `INSERT INTO files (...) RETURNING id`.
-9. Вернуть dict с метаданными + URL'ами.
+1. Создать temp-файл **внутри MEDIA_ROOT** (не в системе `/tmp`):
+   `tempfile.NamedTemporaryFile(dir=MEDIA_ROOT, delete=False, suffix=".part")`.
+   Это критично: `os.rename` атомарен **только в пределах одной файловой системы**.
+   `/tmp` на проде часто tmpfs, `MEDIA_ROOT` на `/dev/sda1` → `os.rename` через
+   разделы упадёт с `OSError: [Errno 18] Invalid cross-device link`. Держим temp
+   рядом с финальным положением.
+2. Считать `UploadFile` чанками (64KB), параллельно: писать в temp, считать
+   `size_bytes`, обновлять `sha256` (hashlib), сохранять `first_chunk` для MIME-снайфа.
+3. Если `size_bytes > MAX_SIZE_BYTES` → закрыть temp, удалить, поднять `HTTPException(413)`.
+4. python-magic `from_buffer(first_chunk)` → настоящий MIME (по содержимому,
+   не по заголовку браузера — пользователь может его подменить).
+5. `is_allowed(mime, ext)` — **двойная проверка**: MIME в whitelist И расширение
+   ∈ `ALLOWED_MIME_EXT[mime]`. Ловит рассинхрон (`.pdf` имя, внутри ZIP) → если
+   рассинхрон, удалить temp, `HTTPException(415)`.
+6. **Sanitize `original_name`** — отбросить управляющие символы, `"`, `\r`, `\n`
+   (защита от header injection при последующей отдаче через Content-Disposition,
+   см. ниже). Если после очистки пусто — fallback `"file"`.
+7. `storage_path = f"{year}/{month}/{secrets.token_hex(16)}{ext}"`.
+8. `target_dir = os.path.dirname(MEDIA_ROOT/storage_path)`;
+   `os.makedirs(target_dir, exist_ok=True)` — директория `2026/07/` не существует
+   для первого файла месяца, без этого `os.rename` упадёт с `FileNotFoundError`.
+9. `os.rename(temp, MEDIA_ROOT/storage_path)` — атомарно (та же ФС, см. пункт 1).
+10. Если `mime.startswith("image/")` → `_generate_thumbnail` → `thumbnail_path`.
+    При ошибке Pillow (битая картинка) — `thumbnail_path` остаётся NULL, оригинал сохраняется.
+11. `INSERT INTO files (...) RETURNING id`.
+12. Вернуть dict с метаданными + URL'ами. На любом except после создания temp —
+    `finally: if os.path.exists(temp): os.remove(temp)` (не оставлять мусор).
 
 **`backend/routes/files.py`** — два эндпоинта:
 
@@ -217,11 +244,16 @@ def download_file(
         with open(abs_path, "rb") as f:
             while chunk := f.read(64 * 1024):
                 yield chunk
+    # RFC 5987: original_name — пользовательский ввод. Используем filename*
+    # с percent-encoding, чтобы кавычки/CR/LF/нелатиница не сломали заголовок
+    # и не дали header injection. Имя уже sanitised при сохранении, но defense-in-depth.
+    from urllib.parse import quote
+    quoted = quote(meta["original_name"])
     return StreamingResponse(
         iterfile(),
         media_type=meta["mime_type"],
         headers={
-            "Content-Disposition": f'inline; filename="{meta["original_name"]}"',
+            "Content-Disposition": f"inline; filename*=UTF-8''{quoted}",
             "Content-Length": str(meta["size_bytes"]),
         },
     )
@@ -336,15 +368,19 @@ export const filesApi = {
 | Случай | Поведение |
 |---|---|
 | **Path traversal** | `storage_path` генерится сервером (`secrets.token_hex`), пользовательский ввод не попадает в путь. Никакого `..`. |
-| **Подмена MIME** | python-magic снайфит по содержимому (не заголовку браузера). Двойная проверка: MIME AND расширение на whitelist. |
+| **Подмена MIME** | python-magic снайфит по содержимому (не заголовку браузера). Двойная проверка: MIME AND расширение на whitelist. Ловит рассинхрон `.pdf`+ZIP-внутри (см. тест `test_upload_mime_ext_mismatch_415`). |
+| **Header injection в Content-Disposition** | `original_name` — пользовательский ввод. Используем RFC 5987 `filename*=UTF-8''{quote(name)}` (percent-encoding) + **sanitize при сохранении**: отбрасываем управляющие символы, `"`, `\r`, `\n`. Двойная защита (при сохранении + при отдаче). |
+| **`os.rename` между ФС** | temp создаётся **внутри MEDIA_ROOT** (`tempfile.NamedTemporaryFile(dir=MEDIA_ROOT, delete=False)`), не в `/tmp`. Иначе rename через разделы упадёт `OSError: cross-device link`. |
+| **Директория месяца не существует** | `os.makedirs(os.path.dirname(target), exist_ok=True)` перед rename. Без этого первый файл месяца → `FileNotFoundError`. |
 | **Oversized upload** | Чтение чанками с подсчётом; при превышении 100MB — прервать, удалить temp, 413. |
-| **Чужой файл** | `uploaded_by != user.id AND role != admin` → 403. |
+| **Чужой файл (owner-check)** | `uploaded_by != user.id AND role != admin` → 403. |
+| **Tenant-изоляция** | **Не реализована.** Мультитенантности в проекте нет (см. секцию YAGNI). Сейчас изоляция только через `uploaded_by`. Когда `tenants`+RLS придут — `files` получит `tenant_id` миграцией, а `get_file` — tenant-check. **Это сознательное решение** (не упущение): класть `tenant_id` сейчас = NULL во всех строках + вторая миграция потом. |
 | **Несуществующий файл** | 404. |
 | **Удалённый юзер-загрузчик** | `uploaded_by` NULL (FK SET NULL). Файл orphan, доступен только admin. |
 | **Физическое удаление** | Не делаем. Soft только. На 24GB не проблема. |
 | **Дедуп** | Не делаем. `sha256` колонка готова под будущее. |
 | **Thumbnail failed** | Если Pillow упал на битой картинке — `thumbnail_path` остаётся NULL, оригинал сохраняется. Не падаем. |
-| **Большие файлы + 4 воркера** | StreamingResponse держит воркер на время отдачи. Для 100MB и редких скачиваний в CRM — ок. Future-proof: nginx `X-Accel-Redirect` (FastAPI отдаёт только заголовок, nginx стримит). Закладываем как заметку, не реализуем. |
+| **Большие файлы + 4 воркера** | StreamingResponse держит воркер на время отдачи. **Реальный риск, а не теоретический**: чат-вложения могут скачиваться параллельно несколькими участниками канала — узкое место всплывёт быстрее, чем «когда-нибудь». **Первый кандидат на оптимизацию при признаках тормозов**: nginx `X-Accel-Redirect` (FastAPI отдаёт только заголовок `X-Accel-Redirect: /internal/...`, nginx стримит файл с диска сам, не занимая воркер). ~15 минут работы. Триггер: воркеры упираются в отдачу файлов при нескольких одновременных скачиваниях. Закладываем как documented escape hatch, следим за метриками. |
 
 ---
 
@@ -371,21 +407,23 @@ export const filesApi = {
 | 2 | `test_upload_image_generates_thumbnail` | POST PNG → is_image=true, thumbnail_path not null |
 | 3 | `test_upload_exceeds_size_limit_413` | файл >100MB → 413 (через mock или patch MAX_SIZE для теста) |
 | 4 | `test_upload_blocked_mime_415` | `.exe`/`application/x-msdownload` → 415 |
-| 5 | `test_get_file_owner_200` | автор скачивает → 200 + правильный Content-Type |
-| 6 | `test_get_file_non_owner_403` | чужой юзер → 403 |
-| 7 | `test_get_file_admin_200` | admin скачивает чужой файл → 200 |
-| 8 | `test_get_nonexistent_file_404` | id=999999 → 404 |
-| 9 | `test_thumbnail_404_for_non_image` | не-картинка → /thumbnail → 404 |
-| 10 | `test_storage_path_no_user_input` | storage_path содержит только server-generated token (regression на path traversal) |
+| 5 | `test_upload_mime_ext_mismatch_415` | имя `.pdf`, но внутри реально ZIP (magic по содержимому говорит `application/zip`) → 415. Двойная проверка MIME AND ext ловит рассинхрон. |
+| 6 | `test_get_file_owner_200` | автор скачивает → 200 + правильный Content-Type |
+| 7 | `test_get_file_non_owner_403` | чужой юзер → 403 |
+| 8 | `test_get_file_admin_200` | admin скачивает чужой файл → 200 |
+| 9 | `test_get_nonexistent_file_404` | id=999999 → 404 |
+| 10 | `test_thumbnail_404_for_non_image` | не-картинка → /thumbnail → 404 |
+| 11 | `test_storage_path_no_user_input` | storage_path содержит только server-generated token (regression на path traversal) |
+| 12 | `test_content_disposition_sanitized` | original_name с `"` / CR / LF не ломает заголовок (defense-in-depth, проверка quote) |
 
 ### Frontend (vitest)
 
 | # | Тест | Что проверяет |
 |---|---|---|
-| 11 | `FileUploader emits uploaded event with StoredFile` | успешная загрузка → эмит |
-| 12 | `filesApi.url(id) builds correct path` | URL конструируется правильно |
+| 13 | `FileUploader emits uploaded event with StoredFile` | успешная загрузка → эмит |
+| 14 | `filesApi.url(id) builds correct path` | URL конструируется правильно |
 
-Ожидаемый счёт: 160 → 170 backend + 7 → 9 frontend.
+Ожидаемый счёт: 160 → 172 backend (+12) + 7 → 9 frontend (+2).
 
 ---
 
