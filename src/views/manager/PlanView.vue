@@ -49,109 +49,6 @@ function getWorkDaysIso(year: number, month: number): string[] {
   return out
 }
 
-function buildDemoPayload(year: number, month: number): KpiPlansPayload {
-  const work_days = getWorkDaysIso(year, month)
-  const total = work_days.length
-
-  const pad2 = (n: number) => String(n).padStart(2, '0')
-  const today = new Date()
-  const todayIso = `${today.getFullYear()}-${pad2(today.getMonth() + 1)}-${pad2(today.getDate())}`
-
-  const passed_days = work_days.filter(d => d <= todayIso).length
-
-  // Deterministic demo values (no randomness)
-  const adjusted_plan_units = 200
-  const daily_plan = total > 0 ? adjusted_plan_units / total : 0
-
-  const plan_cum: number[] = []
-  for (let i = 0; i < total; i++) {
-    plan_cum.push(Math.round(daily_plan * (i + 1)))
-  }
-
-  const daily_details: KpiPlansManagerDailyDetail[] = []
-  const fact_cum: Array<number | null> = new Array(total).fill(null)
-
-  // Map used_units into visits/calls with weights from UI/backend:
-  // visits=8, calls=1, DAY_CAP_UNITS=10
-  const used_units_day = total > 0 ? Math.max(1, Math.round(daily_plan)) : 0
-  const visitsPerDay = Math.floor(used_units_day / 8)
-  const callsPerDay = used_units_day - visitsPerDay * 8
-
-  const DAY_CAP_UNITS = 10
-  const capPct = (usedUnits: number) => {
-    if (DAY_CAP_UNITS <= 0) return 0
-    return Math.round(Math.min(1, usedUnits / DAY_CAP_UNITS) * 100)
-  }
-
-  let factTotal = 0
-  for (let i = 0; i < total; i++) {
-    const isPassed = i < passed_days
-    const dayUsed = isPassed ? used_units_day : 0
-    if (isPassed) {
-      factTotal += dayUsed
-      fact_cum[i] = factTotal
-    }
-
-    daily_details.push({
-      date: work_days[i],
-      visits: isPassed ? visitsPerDay : 0,
-      messenger: 0,
-      leads: 0,
-      calls: isPassed ? callsPerDay : 0,
-      used_units: dayUsed,
-      capacity_pct: capPct(dayUsed),
-      is_past: i < passed_days,
-    })
-  }
-
-  const lastFact = (() => {
-    for (let i = fact_cum.length - 1; i >= 0; i--) {
-      const v = fact_cum[i]
-      if (v !== null && v !== undefined) return v
-    }
-    return 0
-  })()
-
-  const completion_pct = adjusted_plan_units > 0 ? Math.round((lastFact / adjusted_plan_units) * 100) : 0
-
-  const cap_today_pct = (() => {
-    const todayIdx = work_days.indexOf(todayIso)
-    if (todayIdx < 0) return 0
-    const used = todayIdx < passed_days ? used_units_day : 0
-    return capPct(used)
-  })()
-
-  const stats = {
-    completion_pct,
-    cap_today_pct,
-    leads_month_total: 0,
-    visits_month_total: passed_days * visitsPerDay,
-    calls_month_total: passed_days * callsPerDay,
-    messenger_month_total: 0,
-    delta_units: lastFact - (plan_cum[Math.max(0, passed_days - 1)] ?? 0),
-  }
-
-  const demoManager: KpiPlansManager = {
-    user_id: 0,
-    user_name: 'АДМИНИСТРАТОР (демо)',
-    base_plan_units: adjusted_plan_units,
-    adjusted_plan_units,
-    work_days,
-    passed_days,
-    fact_cum,
-    plan_cum,
-    daily_details,
-    stats,
-  }
-
-  return {
-    year,
-    month,
-    work_days_count: total,
-    managers: [demoManager],
-  }
-}
-
 function dailyAt(i: number): KpiPlansManagerDailyDetail | null {
   const m = selectedManager.value
   if (!m) return null
@@ -364,13 +261,6 @@ onMounted(async () => {
   try {
     const res = await kpiPlansApi.get({ month: defaultMonth, year: defaultYear })
     payload.value = res.data
-
-    const managersLen = payload.value?.managers?.length ?? 0
-
-    // Presentation fallback: if backend has no managers for admin, show deterministic demo data.
-    if (auth.role === 'admin' && managersLen === 0) {
-      payload.value = buildDemoPayload(defaultYear, defaultMonth)
-    }
 
     selectedIdx.value = 0
     await refreshChart()

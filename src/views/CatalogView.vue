@@ -1,24 +1,11 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useCatalogStore } from '@/stores/catalog'
+import { toast } from '@/plugins/toast'
 import type { Sku } from '@/types/catalog'
 
 const store = useCatalogStore()
-
-const localFallback: Sku[] = [
-  { id: 1, sku: 'HHB UCP 206', category: 'housing', gost: '480206', d: 30, D: 62, B: 38.1, type: 'Корпусной узел на лапах', brand: 'HHB', stock: 'Достаточно', price: 1180, img: '' },
-  { id: 2, sku: 'HHB UCF 208', category: 'housing', gost: '480208', d: 40, D: 80, B: 49.2, type: 'Квадратный фланцевый узел', brand: 'HHB', stock: 'Достаточно', price: 1420, img: '' },
-  { id: 3, sku: 'HHB UCFL 205', category: 'housing', gost: '480205', d: 25, D: 52, B: 34.1, type: 'Ромбический фланцевый узел', brand: 'HHB', stock: 'Достаточно', price: 980, img: '' },
-  { id: 4, sku: 'HHB UCT 207', category: 'housing', gost: '480207', d: 35, D: 72, B: 42.9, type: 'Натяжной узел для нории', brand: 'HHB', stock: 'В наличии', price: 1850, img: '' },
-  { id: 5, sku: 'HHB STAINLESS UC 204', category: 'stainless', gost: 'SS480204', d: 20, D: 47, B: 31, type: 'Нержавеющая сталь', brand: 'HHB', stock: '18 шт', price: 2950, img: '' },
-  { id: 6, sku: 'FKD UK 208 + H2308', category: 'housing', gost: 'UK208', d: 35, D: 80, B: 49, type: 'С конической закрепительной втулкой', brand: 'FKD', stock: '95 шт', price: 1620, img: '' },
-  { id: 7, sku: 'FKD NA 206', category: 'housing', gost: 'NA206', d: 30, D: 62, B: 36.4, type: 'С эксцентриковым стопорным кольцом', brand: 'FKD', stock: 'Достаточно', price: 730, img: '' },
-  { id: 8, sku: 'HHB 22315-E1-T41A', category: 'roller', gost: '3615', d: 75, D: 160, B: 55, type: 'Сферический роликовый для виброгрохотов', brand: 'HHB', stock: '12 шт', price: 7950, img: '' },
-  { id: 9, sku: 'HHB 6205-2RS C3', category: 'ball', gost: '180205', d: 25, D: 52, B: 15, type: 'Радиальный шариковый с увеличенным зазором', brand: 'HHB', stock: '1 240 шт', price: 420, img: '' },
-  { id: 10, sku: 'HHB 6206-2RS C3', category: 'ball', gost: '180206', d: 30, D: 62, B: 16, type: 'Радиальный шариковый с зазором C3', brand: 'HHB', stock: '850 шт', price: 540, img: '' },
-  { id: 11, sku: 'FKD UC 210', category: 'housing', gost: '480210', d: 50, D: 90, B: 51.6, type: 'Шариковый радиальный', brand: 'FKD', stock: '320 шт', price: 690, img: '' },
-  { id: 12, sku: 'Сальник 30х52х10', category: 'cuffs', gost: '8752-79', d: 30, D: 52, B: 10, type: 'Армированная одновальная манжета', brand: 'FKD', stock: 'Достаточно', price: 180, img: '' },
-]
+const loadError = ref(false)
 
 const categories = [
   { id: 'all', label: 'Все категории' },
@@ -35,7 +22,7 @@ const filterD = ref('')
 const filterDOut = ref('')
 const filterB = ref('')
 
-const items = computed(() => store.items.length ? store.items : localFallback)
+const items = computed(() => store.items)
 
 const filtered = computed(() => {
   let list = items.value
@@ -67,8 +54,13 @@ const filtered = computed(() => {
 
 const selectedItem = ref<Sku | null>(null)
 
-onMounted(() => {
-  store.load().catch(() => {})
+onMounted(async () => {
+  try {
+    await store.load()
+  } catch {
+    loadError.value = true
+    toast.error('Не удалось загрузить каталог')
+  }
 })
 </script>
 
@@ -93,9 +85,6 @@ onMounted(() => {
           <div>
             <div class="text-xs font-bold tracking-widest text-brand-700 mb-2 uppercase">Официальный дистрибьютор Hebei Hailan в РФ</div>
             <h1 class="text-4xl font-extrabold font-bebas tracking-wide text-neutral-900">Инженерный Каталог HHB & FKD</h1>
-          </div>
-          <div class="text-xs text-neutral-600 bg-white border border-neutral-200 px-4 py-2.5 rounded-xl shadow-sm font-semibold shrink-0">
-            Обновлено из 1С: сегодня
           </div>
         </div>
 
@@ -158,7 +147,9 @@ onMounted(() => {
                     <td class="px-4 py-3.5 text-center text-emerald-600 font-bold">{{ item.stock }}</td>
                     <td class="px-4 py-3.5 text-right font-extrabold">{{ item.price }}</td>
                   </tr>
-                  <tr v-if="filtered.length === 0"><td colspan="6" class="py-12 text-center text-neutral-500 font-semibold text-xs">Позиций не найдено. Попробуйте сбросить фильтры.</td></tr>
+                  <tr v-if="loadError"><td colspan="6" class="py-12 text-center text-red-500 font-semibold text-xs">Не удалось загрузить каталог. Проверьте подключение и обновите страницу.</td></tr>
+                  <tr v-else-if="items.length === 0"><td colspan="6" class="py-12 text-center text-neutral-500 font-semibold text-xs">Каталог пуст.</td></tr>
+                  <tr v-else-if="filtered.length === 0"><td colspan="6" class="py-12 text-center text-neutral-500 font-semibold text-xs">Позиций не найдено. Попробуйте сбросить фильтры.</td></tr>
                 </tbody>
               </table>
             </div>
@@ -192,7 +183,7 @@ onMounted(() => {
                         <div class="text-2xl font-extrabold text-neutral-900 font-bebas mt-0.5">{{ selectedItem.price }}</div>
                       </div>
                       <div class="text-right">
-                        <div class="text-[10px] text-neutral-400 font-bold uppercase">Склад Воронеж</div>
+                        <div class="text-[10px] text-neutral-400 font-bold uppercase">Наличие</div>
                         <div class="text-sm font-bold text-emerald-600 mt-0.5">{{ selectedItem.stock }}</div>
                       </div>
                     </div>
