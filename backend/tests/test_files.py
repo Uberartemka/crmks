@@ -196,3 +196,22 @@ def test_storage_path_contains_no_user_input(seeded_files):
     assert parts[0].isdigit() and parts[1].isdigit()
     assert parts[2].endswith(".pdf")
     assert "../" not in parts[2] and parts[2].count(".") == 1
+
+
+def test_content_disposition_sanitized_via_save(seeded_files):
+    """Defense-in-depth: even if sanitize missed something, the route uses
+    quote() so the header can't break. Here we verify the saved name has no
+    quotes/CR/LF after sanitize, which is what the route then quotes."""
+    evil_name = 'evil"; injection\r\nX-Bad: 1.pdf'
+    pdf_bytes = b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\n1 0 obj<</Type/Catalog>>endobj\nxref\n0 1\ntrailer<</Root 1 0 R>>\nstartxref\n0\n%%EOF"
+    upload = _make_upload(pdf_bytes, evil_name, "application/pdf")
+    meta = _run(save_upload(upload=upload, current_user={"id": 1, "role": "manager"}))
+    name = meta["original_name"]
+    # sanitize stripped the dangerous chars
+    assert '"' not in name
+    assert "\r" not in name and "\n" not in name
+    # the route would then quote() this — combined defense
+    from urllib.parse import quote
+    quoted = quote(name)
+    # quoted form is safe to embed in an HTTP header (no raw CR/LF/quotes)
+    assert "\r" not in quoted and "\n" not in quoted and '"' not in quoted
