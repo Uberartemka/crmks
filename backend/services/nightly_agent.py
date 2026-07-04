@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from db import get_db, q
-from routes.ai_claude_agent import call_claude
+from routes.ai_claude_agent import call_claude, JSON_SYSTEM_PROMPT
 from utils.ai_utils import parse_ai_json
 
 logger = logging.getLogger("HHB_B2B")
@@ -89,7 +89,7 @@ async def run_nightly_agent() -> None:
 }}"""
 
                 try:
-                    result = await call_claude(prompt)
+                    result = await call_claude(prompt, system=JSON_SYSTEM_PROMPT)
                     data: dict[str, Any] = parse_ai_json(result)
                 except Exception as e:
                     logger.error(f"[Scheduler] AI error for lead_id={lead_id}: {e}")
