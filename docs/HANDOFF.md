@@ -74,7 +74,12 @@
 ## 🚨 Known issues / trade-offs (важно помнить!)
 
 1. **✅ РЕШЕНО (морг 004):** `proposal_items.sku_id` теперь FK → `products(id) ON DELETE RESTRICT` (был `sku_catalog CASCADE`). Весь proposal-флоу (proposals, email, AI-парсинг, /api/catalog/skus) читает из `products`. `sku_catalog` больше не используется proposal-флоу, но **таблицу пока НЕ дропаем** (destructive — отдельная задача после подтверждения стабильности).
-2. **API-ключи в `.env` = REPLACE_ME.** AI-функции (Kimi/CF/SERPAPI) не работают, пока не впишешь. На сервере: `/var/www/crmks/backend/.env` → `systemctl restart crmks-api`.
+2. **✅ РЕШЕНО:** AI теперь на **GLM (BigModel, `glm-4.5-flash`)** — ваша подписка GLM вместо Kimi/DeepSeek. Все 3 AI-пути переключены:
+   - `call_claude()` каскад (10 точек: парсинг КП, анализ звонков, дневной план, ночной агент...) — GLM primary, Anthropic/Kimi фолбэк
+   - `/api/ai/search` — GLM вместо DeepSeek (с markdown-fence strip + timeout 30s)
+   - `kimi_client`/agent-loop (`/api/ai/chat`, function calling) — через env: `KIMI_BASE_URL=open.bigmodel.cn`, `KIMI_MODEL=glm-4.5-flash`, CF убран
+   - Проверено end-to-end на проде: `/api/ai/search` «роликовый подшипник NU 1008» → реальный GLM-ответ с аналогами.
+   - **Ключ в `.env`:** `GLM_API_KEY` (также продублирован как `KIMI_API_KEY` для agent-loop). CF_* vars закомментированы. `SERPAPI_KEY` всё ещё REPLACE_ME (не используется в основном флоу).
 3. **Нет SSL/домена** — CRM доступна по http://72.56.246.21. Когда купишь домен: `certbot --nginx -d <домен>`.
 4. **`/api/v1/products/{id}/stock` (GET) не сделан** — решили, что избыточен (`product_card` уже возвращает stock+price).
 5. **Сайты пока ходят в свои БД напрямую** — не в CRM API. Переключение сайтов = отдельная задача.
@@ -94,7 +99,7 @@
 | 1 | **Смержить `feat/import-kyk-products` + `feat/proposals-to-products` в main** (обе задеплоены на проде, но не в main) | тривиально |
 | 2 | **DROP `sku_catalog`** — теперь proposal-флоу не использует её. Сначала убедиться, что ничего другого не сломается (catalog_v1 упоминает). | низкая (после проверки) |
 | 3 | **Нормализация code-маппинга** — обогатить 357 старых KYK-записей sku_catalog характеристиками из kyk (нужна логика извлечения чистого артикула из «Подшипник HQ…+ KYK») | средняя |
-| 4 | API-ключи в `.env` (KIMI/CF/SERPAPI) | тривиально |
+| 4 | `SERPAPI_KEY` в `.env` (остался REPLACE_ME) — нужен только если используется search-via-SerpAPI; основной AI уже на GLM | тривиально |
 | 5 | SSL/домен для CRM (`certbot --nginx`) | тривиально |
 | 6 | **Plan 2: Мультитенантность** (tenants + RLS + middleware) — фундамент для приёма 2-й компании | высокая |
 | 7 | Plan 3: Кастомные поля (jsonb) | средняя |
