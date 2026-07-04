@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends, Request
 from schemas.tasks import NoteCreate
@@ -25,9 +25,10 @@ def get_current_user():
 
 @router.get("/api/notes")
 async def list_notes_endpoint(
+    tag: Optional[str] = None,
     current_user: Dict[str, Any] = Depends(get_current_user()),
 ):
-    return await list_notes(current_user=current_user)
+    return await list_notes(current_user=current_user, tag=tag)
 
 
 @router.post("/api/notes")

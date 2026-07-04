@@ -11,6 +11,7 @@ from db import get_db, q, _use_pg
 
 async def list_notes(
     current_user: Dict[str, Any],
+    tag: str | None = None,
 ) -> List[Dict[str, Any]]:
     conn = get_db()
     cursor = conn.cursor()
@@ -27,7 +28,7 @@ async def list_notes(
     rows = cursor.fetchall()
     conn.close()
 
-    return [
+    result = [
         {
             "id": r[0],
             "user_id": r[1],
@@ -42,6 +43,12 @@ async def list_notes(
         }
         for r in rows
     ]
+
+    # Optional tag filter (tags stored as JSON string in a text column).
+    if tag:
+        result = [n for n in result if tag in n["tags"]]
+
+    return result
 
 
 async def create_note(
