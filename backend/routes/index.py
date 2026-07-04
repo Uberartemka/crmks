@@ -285,6 +285,11 @@ def register_routes(app) -> None:
 
     app.include_router(notes_router)
 
+    # Defects
+    from routes.defects import router as defects_router
+
+    app.include_router(defects_router)
+
     from routes.tasks_legacy import router as tasks_legacy_router
 
     app.include_router(tasks_legacy_router)
