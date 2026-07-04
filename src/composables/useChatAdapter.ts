@@ -51,8 +51,13 @@ export function toMessage(
     saved: true,
     distributed: true,
     seen: false,
-    replyMessage: m.reply_to_id
-      ? { _id: String(m.reply_to_id), content: '', senderId: '' }
+    replyMessage: m.reply_message
+      ? {
+          _id: String(m.reply_message.id),
+          content: m.reply_message.content,
+          senderId: String(m.reply_message.author_id ?? ''),
+          username: m.reply_message.author_name ?? 'Неизвестно',
+        }
       : null,
   }
 }

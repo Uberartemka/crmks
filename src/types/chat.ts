@@ -15,6 +15,12 @@ export interface ChatMessage {
   author_id: number
   content: string
   reply_to_id?: number | null
+  reply_message?: {
+    id: number
+    content: string
+    author_id: number | null
+    author_name: string | null
+  } | null
   created_at: string | null
   edited_at?: string | null
   deleted_at?: string | null
