@@ -56,26 +56,25 @@ def ai_search(payload: AiSearchRequest):
 
     start_time = time.time()
 
-    api_key = payload.api_key or os.getenv("DEEPSEEK_API_KEY")
+    api_key = payload.api_key or os.getenv("GLM_API_KEY") or os.getenv("DEEPSEEK_API_KEY")
 
     if api_key:
         try:
-            logger.info("[AI Search] Отправка запроса к официальному API DeepSeek...")
+            logger.info("[AI Search] Отправка запроса к GLM (BigModel)...")
 
             req = urllib.request.Request(
-                "https://api.deepseek.com/chat/completions",
+                "https://open.bigmodel.cn/api/paas/v4/chat/completions",
                 data=json.dumps(
                     {
-                        "model": "deepseek-chat",
+                        "model": os.getenv("GLM_MODEL", "glm-4.5-flash"),
                         "messages": [
                             {
                                 "role": "system",
-                                "content": "Ты профессиональный консультант ООО Компонент Сервис, эксперт по премиум-подшипникам HHB и FKD. Выдай строго JSON с полями title, desc, price, stock, cross.",
+                                "content": "Ты профессиональный консультант ООО Компонент Сервис, эксперт по премиум-подшипникам HHB и FKD. Верни ТОЛЬКО валидный JSON (без markdown, без пояснений) с полями title, desc, price, stock, cross.",
                             },
                             {"role": "user", "content": query},
                         ],
                         "temperature": 0.2,
-                        "response_format": {"type": "json_object"},
                     }
                 ).encode("utf-8"),
                 headers={
@@ -88,13 +87,13 @@ def ai_search(payload: AiSearchRequest):
                 resp_data = json.loads(response.read().decode("utf-8"))
 
             elapsed_time = time.time() - start_time
-            logger.info(f"[AI Search] Успешный ответ от DeepSeek за {elapsed_time:.2f} сек.")
+            logger.info(f"[AI Search] Успешный ответ от GLM за {elapsed_time:.2f} сек.")
 
             return json.loads(resp_data["choices"][0]["message"]["content"])
         except Exception as e:
             elapsed_time = time.time() - start_time
             logger.error(
-                f"[!] [AI Search Error] Сбой при запросе к DeepSeek API через {elapsed_time:.2f} сек. Ошибка: {e}"
+                f"[!] [AI Search Error] Сбой при запросе к GLM API через {elapsed_time:.2f} сек. Ошибка: {e}"
             )
             logger.error(traceback.format_exc())
             logger.warning("[AI Search] Активирован локальный резервный офлайн-режим для бесперебойной работы фронтенда.")
