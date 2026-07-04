@@ -89,7 +89,19 @@ def ai_search(payload: AiSearchRequest):
             elapsed_time = time.time() - start_time
             logger.info(f"[AI Search] Успешный ответ от GLM за {elapsed_time:.2f} сек.")
 
-            return json.loads(resp_data["choices"][0]["message"]["content"])
+            content = resp_data["choices"][0]["message"]["content"]
+            # GLM (and most LLMs without response_format) often wrap JSON in a
+            # ```json ... ``` markdown fence. Strip it before parsing.
+            content = content.strip()
+            if content.startswith("```"):
+                # Remove the opening fence (```json or ```) and the closing ```
+                lines = content.splitlines()
+                if lines and lines[0].startswith("```"):
+                    lines = lines[1:]
+                if lines and lines[-1].strip() == "```":
+                    lines = lines[:-1]
+                content = "\n".join(lines).strip()
+            return json.loads(content)
         except Exception as e:
             elapsed_time = time.time() - start_time
             logger.error(
