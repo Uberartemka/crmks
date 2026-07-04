@@ -1,11 +1,26 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { useClientsStore } from '@/stores/clients'
+import { useConfirm } from '@/composables/useConfirm'
+import { toast } from '@/plugins/toast'
 
 const store = useClientsStore()
 const search = ref('')
+const { confirm } = useConfirm()
 
 onMounted(() => store.load())
+
+async function removeClient(id: number, name: string) {
+  const ok = await confirm({
+    title: 'Удалить клиента?',
+    message: `Клиент «${name}» будет удалён. Действие нельзя отменить. Связанные КП останутся.`,
+    confirmText: 'Удалить',
+    danger: true,
+  })
+  if (!ok) return
+  await store.remove(id)
+  toast.success('Клиент удалён')
+}
 </script>
 
 <template>
@@ -44,7 +59,7 @@ onMounted(() => store.load())
             <td class="px-4 py-3 text-center"><span class="px-2 py-1 rounded-full text-[9px] font-bold bg-green-100 text-green-700">{{ c.status }}</span></td>
             <td class="px-4 py-3 text-center font-bold text-brand-700">{{ c.discount }}%</td>
             <td class="px-4 py-3 text-center">
-              <button @click="store.remove(c.id)" class="text-red-500 hover:text-red-700 transition" title="Удалить">
+              <button @click="removeClient(c.id, c.name)" class="text-red-500 hover:text-red-700 transition" title="Удалить">
                 <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
               </button>
             </td>
