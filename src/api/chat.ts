@@ -3,6 +3,7 @@ import type { Channel, ChatMessage } from '@/types/chat'
 
 export const chatApi = {
   listChannels: () => api.get<Channel[]>('/api/chat/channels'),
+  staffUsers: () => api.get<{ id: number; username: string; name: string }[]>('/api/chat/users'),
   createTopic: (data: { name: string; member_ids?: number[] }) =>
     api.post<Channel>('/api/chat/channels', { name: data.name, type: 'topic', member_ids: data.member_ids ?? [] }),
   listMessages: (channelId: number, before?: number) =>

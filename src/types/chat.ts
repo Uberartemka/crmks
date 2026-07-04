@@ -6,6 +6,7 @@ export interface Channel {
   type: ChannelType
   department_role?: string | null
   archived?: boolean
+  members?: { id: number; username: string; name: string }[]
 }
 
 export interface ChatMessage {
@@ -17,6 +18,8 @@ export interface ChatMessage {
   created_at: string | null
   edited_at?: string | null
   deleted_at?: string | null
+  author_username?: string | null
+  author_name?: string | null
 }
 
 export interface WsTicket {

@@ -1,16 +1,25 @@
 <script setup lang="ts">
-import { onMounted, computed } from 'vue'
+import { onMounted, ref, computed } from 'vue'
 import { useChatStore } from '@/stores/chat'
 import { useAuthStore } from '@/stores/auth'
 import { useChatSocket } from '@/composables/useChatSocket'
 import { chatApi } from '@/api/chat'
-import ChannelList from '@/components/chat/ChannelList.vue'
-import MessageList from '@/components/chat/MessageList.vue'
-import MessageInput from '@/components/chat/MessageInput.vue'
+import { toRoom, toMessage } from '@/composables/useChatAdapter'
+import CreateChannelModal from '@/components/chat/CreateChannelModal.vue'
 
 const store = useChatStore()
 const auth = useAuthStore()
 const { connect, onMessage } = useChatSocket()
+
+const messagesLoaded = ref(true)
+const showCreateModal = ref(false)
+
+const currentUserId = computed(() => String(auth.user?.id ?? 0))
+const rooms = computed(() =>
+  store.channels.map((c) => toRoom(c as any, store.unread[c.id] ?? 0)),
+)
+const messages = computed(() => store.activeMessages.map((m) => toMessage(m as any)))
+const canCreate = computed(() => auth.role === 'admin' || auth.role === 'manager')
 
 const wsBase = import.meta.env.DEV
   ? 'ws://localhost:8000/ws/chat'
@@ -19,33 +28,79 @@ const wsBase = import.meta.env.DEV
 onMounted(async () => {
   await store.loadChannels()
   await store.loadUnread()
-  if (store.activeChannelId) await store.loadHistory(store.activeChannelId)
-
-  // connect WS with a fresh ticket
-  const { data } = await chatApi.wsTicket()
-  connect(wsBase, data.ticket)
-  onMessage((msg) => {
-    if (msg.type === 'message') store.onIncomingMessage(msg.message)
-    else if (msg.type === 'unread') store.onUnread(msg.channel_id)
-    else if (msg.type === 'typing') store.onTyping(msg.channel_id, msg.user_id)
-  })
+  if (store.activeChannelId) {
+    await store.loadHistory(store.activeChannelId)
+    messagesLoaded.value = true
+  }
+  try {
+    const { data } = await chatApi.wsTicket()
+    connect(wsBase, data.ticket)
+    onMessage((msg) => {
+      if (msg.type === 'message') store.onIncomingMessage(msg.message)
+      else if (msg.type === 'unread') store.onUnread(msg.channel_id)
+      else if (msg.type === 'typing') store.onTyping(msg.channel_id, msg.user_id)
+    })
+  } catch (e) {
+    console.warn('chat WS connect failed', e)
+  }
 })
 
-const me = computed(() => auth.user?.id ?? 0)
+function onSend(event: any) {
+  const { content, roomId } = event.detail[0]
+  store.sendMessage(Number(roomId), content)
+}
+
+async function onFetch(event: any) {
+  const { room, options } = event.detail[0]
+  const channelId = Number(room.roomId)
+  messagesLoaded.value = false
+  if (options?.reset) {
+    store.setActive(channelId)
+    await store.loadHistory(channelId)
+  } else {
+    // cursor: oldest loaded message id
+    const msgs = store.messagesByChannel[channelId] ?? []
+    const before = msgs.length ? msgs[0].id : undefined
+    await store.loadHistory(channelId, before)
+  }
+  messagesLoaded.value = true
+}
+
+function openCreateModal() {
+  showCreateModal.value = true
+}
+
+async function onChannelCreated() {
+  showCreateModal.value = false
+  await store.loadChannels()
+  await store.loadUnread()
+}
 </script>
 
 <template>
-  <div class="flex h-full">
-    <ChannelList />
-    <section v-if="store.activeChannel" class="flex-1 flex flex-col">
-      <header class="px-4 py-3 border-b border-slate-200 bg-white">
-        <h1 class="font-bold">{{ store.activeChannel.name }}</h1>
-      </header>
-      <MessageList :current-user-id="me" />
-      <MessageInput />
-    </section>
-    <section v-else class="flex-1 flex items-center justify-center text-slate-400">
-      Выберите канал
-    </section>
+  <div class="h-full">
+    <vue-advanced-chat
+      :current-user-id="currentUserId"
+      :rooms="rooms"
+      :messages="messages"
+      :rooms-loaded="true"
+      :messages-loaded="messagesLoaded"
+      :add-room-enabled="canCreate"
+      :room-info-enabled="true"
+      :show-search="false"
+      :show-files="false"
+      :show-audio="false"
+      :textarea-action-enabled="false"
+      lang="ru"
+      height="100%"
+      @send-message="onSend"
+      @fetch-messages="onFetch"
+      @add-room="openCreateModal"
+    />
+    <CreateChannelModal
+      v-if="showCreateModal"
+      @close="showCreateModal = false"
+      @created="onChannelCreated"
+    />
   </div>
 </template>
