@@ -6,7 +6,7 @@ import psycopg2
 import pytest
 from fastapi import HTTPException
 
-from services.file_service import is_allowed, sanitize_name, save_upload
+from services.file_service import is_allowed, sanitize_name, save_upload, get_file
 
 
 def _run(coro):
@@ -144,3 +144,37 @@ def test_save_upload_image_generates_thumbnail(seeded_files):
     assert meta["thumbnail_url"] is not None
     # thumbnail file physically exists
     assert os.path.exists(os.path.join(seeded_files, meta["_storage_path"].rsplit(".", 1)[0] + "_thumb.jpg"))
+
+
+def _seed_one_file(seeded_files, owner_id=1):
+    """Upload a PDF as owner_id, return its metadata."""
+    pdf_bytes = b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\nxref\n0 3\ntrailer<</Size 3/Root 1 0 R>>\nstartxref\n0\n%%EOF"
+    upload = _make_upload(pdf_bytes, "doc.pdf", "application/pdf")
+    return _run(save_upload(upload=upload, current_user={"id": owner_id, "role": "manager"}))
+
+
+def test_get_file_owner_200(seeded_files):
+    meta = _seed_one_file(seeded_files, owner_id=1)
+    row, abs_path = get_file(file_id=meta["id"], current_user={"id": 1, "role": "manager"})
+    assert row["id"] == meta["id"]
+    assert row["mime_type"] == "application/pdf"
+    assert os.path.exists(abs_path)
+
+
+def test_get_file_non_owner_403(seeded_files):
+    meta = _seed_one_file(seeded_files, owner_id=1)
+    with pytest.raises(HTTPException) as exc:
+        get_file(file_id=meta["id"], current_user={"id": 2, "role": "manager"})
+    assert exc.value.status_code == 403
+
+
+def test_get_file_admin_200_on_others_file(seeded_files):
+    meta = _seed_one_file(seeded_files, owner_id=1)
+    row, abs_path = get_file(file_id=meta["id"], current_user={"id": 3, "role": "admin"})
+    assert row["id"] == meta["id"]
+
+
+def test_get_nonexistent_file_404(seeded_files):
+    with pytest.raises(HTTPException) as exc:
+        get_file(file_id=999999, current_user={"id": 1, "role": "manager"})
+    assert exc.value.status_code == 404

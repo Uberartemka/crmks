@@ -187,3 +187,61 @@ def _generate_thumbnail(storage_path: str) -> Optional[str]:
     except Exception as e:
         logger.warning(f"[files] thumbnail generation failed for {storage_path}: {e}")
         return None
+
+
+def get_file(file_id: int, current_user: dict) -> Tuple[Dict[str, Any], str]:
+    """Owner-check + return (metadata_row, absolute_disk_path). Raise 404/403.
+
+    TODO(tenant): when multitenancy lands (spec 2026-07-03-multitenancy), add a
+    tenant-check here — file.uploaded_by → users.tenant_id must match
+    current_user.tenant_id. Currently no tenants exist; isolation is by
+    uploaded_by (owner-check) only. See spec YAGNI section.
+    """
+    conn = get_db()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            q(
+                """SELECT id, uploaded_by, storage_path, thumbnail_path,
+                          original_name, mime_type, size_bytes, is_image
+                   FROM files WHERE id = %s"""
+            ),
+            (file_id,),
+        )
+        row = cur.fetchone()
+    finally:
+        conn.close()
+
+    if not row:
+        raise HTTPException(404, "Файл не найден")
+
+    uploaded_by = row[1]
+    if uploaded_by != current_user["id"] and current_user.get("role") != "admin":
+        raise HTTPException(403, "Нет доступа к файлу")
+
+    meta = {
+        "id": row[0],
+        "uploaded_by": uploaded_by,
+        "storage_path": row[2],
+        "thumbnail_path": row[3],
+        "original_name": row[4],
+        "mime_type": row[5],
+        "size_bytes": row[6],
+        "is_image": row[7],
+    }
+    abs_path = os.path.join(MEDIA_ROOT, row[2])
+    if not os.path.exists(abs_path):
+        logger.error(f"[files] DB row {file_id} exists but file missing on disk: {abs_path}")
+        raise HTTPException(404, "Файл отсутствует на диске")
+    return meta, abs_path
+
+
+def get_thumbnail_path(file_id: int, current_user: dict) -> Tuple[Dict[str, Any], str]:
+    """Like get_file but returns the thumbnail path. 404 if not an image / no thumb."""
+    meta, _ = get_file(file_id, current_user)
+    if not meta["thumbnail_path"]:
+        raise HTTPException(404, "Превью недоступно")
+    abs_path = os.path.join(MEDIA_ROOT, meta["thumbnail_path"])
+    if not os.path.exists(abs_path):
+        raise HTTPException(404, "Превью отсутствует на диске")
+    return meta, abs_path
