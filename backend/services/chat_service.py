@@ -46,7 +46,12 @@ async def list_channels(current_user: Dict[str, Any]) -> List[Dict[str, Any]]:
             (role, uid),
         )
         rows = cur.fetchall()
-        return [_channel_row_to_dict(r) for r in rows]
+        channels = []
+        for r in rows:
+            ch = _channel_row_to_dict(r)
+            ch["members"] = _members_with_names(cur, ch["type"], ch["department_role"], ch["id"])
+            channels.append(ch)
+        return channels
     finally:
         conn.close()
 
@@ -79,7 +84,14 @@ async def create_topic_channel(
                 (channel_id, uid),
             )
         conn.commit()
-        return {"id": channel_id, "name": data.name, "type": "topic", "archived": False}
+        return {
+            "id": channel_id,
+            "name": data.name,
+            "type": "topic",
+            "department_role": None,
+            "archived": False,
+            "members": _members_with_names(cur, "topic", None, channel_id),
+        }
     finally:
         conn.close()
 
@@ -92,6 +104,32 @@ def _channel_row_to_dict(r) -> Dict[str, Any]:
         "department_role": r[3],
         "archived": r[4],
     }
+
+
+def _members_with_names(cur, ctype: str, dept_role: str | None, channel_id: int) -> list[Dict[str, Any]]:
+    """Return [{id, username, name}] for a channel — computed by type.
+
+    Reuses an existing cursor (no new connection). general → all staff,
+    department → role match, topic → explicit channel_members."""
+    if ctype == "topic":
+        cur.execute(
+            q(
+                """SELECT u.id, u.username, u.name FROM channel_members cm
+                   JOIN users u ON u.id = cm.user_id
+                   WHERE cm.channel_id = %s ORDER BY u.name"""
+            ),
+            (channel_id,),
+        )
+    elif ctype == "department":
+        cur.execute(
+            q("SELECT id, username, name FROM users WHERE role = %s ORDER BY name"),
+            (dept_role,),
+        )
+    else:  # general
+        cur.execute(
+            q("SELECT id, username, name FROM users WHERE role IN ('admin','manager','employee') ORDER BY name")
+        )
+    return [{"id": r[0], "username": r[1], "name": r[2]} for r in cur.fetchall()]
 
 
 # ---------- Membership helper ----------
@@ -155,23 +193,30 @@ async def list_messages(
     try:
         cur = conn.cursor()
         _require_channel_access(cur, channel_id, current_user)
+        # LEFT JOIN users: author_name resolves to NULL if the author was deleted
+        # (messages.author_id is ON DELETE SET NULL). Frontend falls back to a
+        # placeholder name in that case.
         if before:
             cur.execute(
                 q(
-                    """SELECT id, channel_id, author_id, content, reply_to_id,
-                        created_at, edited_at, deleted_at
-                        FROM messages WHERE channel_id = %s AND id < %s
-                        ORDER BY id DESC LIMIT %s"""
+                    """SELECT m.id, m.channel_id, m.author_id, m.content, m.reply_to_id,
+                        m.created_at, m.edited_at, m.deleted_at, u.username, u.name
+                        FROM messages m
+                        LEFT JOIN users u ON u.id = m.author_id
+                        WHERE m.channel_id = %s AND m.id < %s
+                        ORDER BY m.id DESC LIMIT %s"""
                 ),
                 (channel_id, before, limit),
             )
         else:
             cur.execute(
                 q(
-                    """SELECT id, channel_id, author_id, content, reply_to_id,
-                        created_at, edited_at, deleted_at
-                        FROM messages WHERE channel_id = %s
-                        ORDER BY id DESC LIMIT %s"""
+                    """SELECT m.id, m.channel_id, m.author_id, m.content, m.reply_to_id,
+                        m.created_at, m.edited_at, m.deleted_at, u.username, u.name
+                        FROM messages m
+                        LEFT JOIN users u ON u.id = m.author_id
+                        WHERE m.channel_id = %s
+                        ORDER BY m.id DESC LIMIT %s"""
                 ),
                 (channel_id, limit),
             )
@@ -207,6 +252,8 @@ async def send_message(
             "id": mid,
             "channel_id": channel_id,
             "author_id": current_user["id"],
+            "author_username": current_user.get("username"),
+            "author_name": current_user.get("name"),
             "content": data.content,
             "reply_to_id": data.reply_to_id,
             "created_at": created_at.isoformat() if created_at else None,
@@ -273,6 +320,9 @@ def _message_row_to_dict(r) -> Dict[str, Any]:
         "created_at": r[5].isoformat() if r[5] else None,
         "edited_at": r[6].isoformat() if r[6] else None,
         "deleted_at": r[7].isoformat() if r[7] else None,
+        # r[8] = users.username, r[9] = users.name (NULL if author deleted)
+        "author_username": r[8],
+        "author_name": r[9],
     }
 
 
@@ -394,5 +444,43 @@ async def remove_member(
         )
         conn.commit()
         return {"channel_id": channel_id, "user_id": user_id, "ok": True}
+    finally:
+        conn.close()
+
+
+# ---------- Channel members listing (for room-info panel) ----------
+
+async def list_members(
+    channel_id: int,
+    current_user: Dict[str, Any],
+) -> list[Dict[str, Any]]:
+    """Return [{id, username, name}] for a channel, visible to the caller.
+    Computed by type: general=all staff, department=role match, topic=members."""
+    _require_staff(current_user)
+    conn = get_db()
+    try:
+        cur = conn.cursor()
+        _require_channel_access(cur, channel_id, current_user)
+        # re-fetch type/dept_role (already validated by _require_channel_access)
+        cur.execute(q("SELECT type, department_role FROM channels WHERE id = %s"), (channel_id,))
+        ctype, dept_role = cur.fetchone()
+        return _members_with_names(cur, ctype, dept_role, channel_id)
+    finally:
+        conn.close()
+
+
+async def list_staff_users(current_user: Dict[str, Any]) -> list[Dict[str, Any]]:
+    """All staff users — for the 'invite to channel' dropdown in the create-room modal."""
+    _require_staff(current_user)
+    conn = get_db()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            q(
+                """SELECT id, username, name FROM users
+                   WHERE role IN ('admin','manager','employee') ORDER BY name"""
+            )
+        )
+        return [{"id": r[0], "username": r[1], "name": r[2]} for r in cur.fetchall()]
     finally:
         conn.close()

@@ -22,6 +22,8 @@ from services.chat_service import (
     unread_counts,
     add_member,
     remove_member,
+    list_members,
+    list_staff_users,
 )
 from services.chat_redis import issue_ws_ticket
 
@@ -140,6 +142,21 @@ async def remove_member_endpoint(
     current_user: Dict[str, Any] = Depends(get_current_user()),
 ):
     return await remove_member(channel_id=channel_id, user_id=user_id, current_user=current_user)
+
+
+@router.get("/api/chat/members")
+async def members_endpoint(
+    channel_id: int,
+    current_user: Dict[str, Any] = Depends(get_current_user()),
+):
+    """Members of a channel — for the room-info panel. Computed by channel type."""
+    return await list_members(channel_id=channel_id, current_user=current_user)
+
+
+@router.get("/api/chat/users")
+async def staff_users_endpoint(current_user: Dict[str, Any] = Depends(get_current_user())):
+    """All staff users — for the 'invite to channel' dropdown in the create-room modal."""
+    return await list_staff_users(current_user=current_user)
 
 
 @router.post("/api/chat/ws-ticket")
