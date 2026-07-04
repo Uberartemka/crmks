@@ -200,9 +200,12 @@ async def list_messages(
             cur.execute(
                 q(
                     """SELECT m.id, m.channel_id, m.author_id, m.content, m.reply_to_id,
-                        m.created_at, m.edited_at, m.deleted_at, u.username, u.name
+                        m.created_at, m.edited_at, m.deleted_at, u.username, u.name,
+                        p.id, p.content, p.author_id, pu.name, p.deleted_at
                         FROM messages m
                         LEFT JOIN users u ON u.id = m.author_id
+                        LEFT JOIN messages p ON p.id = m.reply_to_id
+                        LEFT JOIN users pu ON pu.id = p.author_id
                         WHERE m.channel_id = %s AND m.id < %s
                         ORDER BY m.id DESC LIMIT %s"""
                 ),
@@ -212,9 +215,12 @@ async def list_messages(
             cur.execute(
                 q(
                     """SELECT m.id, m.channel_id, m.author_id, m.content, m.reply_to_id,
-                        m.created_at, m.edited_at, m.deleted_at, u.username, u.name
+                        m.created_at, m.edited_at, m.deleted_at, u.username, u.name,
+                        p.id, p.content, p.author_id, pu.name, p.deleted_at
                         FROM messages m
                         LEFT JOIN users u ON u.id = m.author_id
+                        LEFT JOIN messages p ON p.id = m.reply_to_id
+                        LEFT JOIN users pu ON pu.id = p.author_id
                         WHERE m.channel_id = %s
                         ORDER BY m.id DESC LIMIT %s"""
                 ),
@@ -311,6 +317,17 @@ async def delete_message(
 
 
 def _message_row_to_dict(r) -> Dict[str, Any]:
+    # r[10..14] — parent (p.id, p.content, p.author_id, pu.name, p.deleted_at).
+    # reply_message is None when there's no reply, OR when the parent has been
+    # soft-deleted (we don't render quotes of deleted messages).
+    reply_message = None
+    if r[10] is not None and r[14] is None:  # parent exists and not deleted
+        reply_message = {
+            "id": r[10],
+            "content": r[11],
+            "author_id": r[12],
+            "author_name": r[13],
+        }
     return {
         "id": r[0],
         "channel_id": r[1],
@@ -323,6 +340,7 @@ def _message_row_to_dict(r) -> Dict[str, Any]:
         # r[8] = users.username, r[9] = users.name (NULL if author deleted)
         "author_username": r[8],
         "author_name": r[9],
+        "reply_message": reply_message,
     }
 
 

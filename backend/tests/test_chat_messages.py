@@ -117,3 +117,29 @@ def test_soft_delete_only_author_or_admin(seeded_msgs):
     _run(delete_message(message_id=m["id"], current_user={"id": 1, "role": "manager"}))
     hist = _run(list_messages(channel_id=2, current_user={"id": 1, "role": "manager"}))
     assert hist[0]["deleted_at"] is not None
+
+
+def test_list_messages_includes_reply_message(seeded_msgs):
+    # send a parent message, then a reply to it
+    parent = _run(send_message(
+        channel_id=2,
+        data=MessageCreate(content="parent text"),
+        current_user={"id": 1, "role": "manager"},
+    ))
+    reply = _run(send_message(
+        channel_id=2,
+        data=MessageCreate(content="reply text", reply_to_id=parent["id"]),
+        current_user={"id": 1, "role": "manager"},
+    ))
+    assert reply["reply_to_id"] == parent["id"]
+
+    hist = _run(list_messages(channel_id=2, current_user={"id": 1, "role": "manager"}))
+    # newest first: [reply, parent]
+    assert hist[0]["content"] == "reply text"
+    # reply_message must be populated with parent content + author_name
+    assert hist[0]["reply_message"] is not None
+    assert hist[0]["reply_message"]["id"] == parent["id"]
+    assert hist[0]["reply_message"]["content"] == "parent text"
+    assert hist[0]["reply_message"]["author_name"] == "Админ"
+    # parent message has no reply_message of its own
+    assert hist[1]["reply_message"] is None
