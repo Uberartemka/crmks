@@ -83,7 +83,7 @@ def ai_search(payload: AiSearchRequest):
                 },
             )
 
-            with urllib.request.urlopen(req, timeout=12) as response:
+            with urllib.request.urlopen(req, timeout=30) as response:
                 resp_data = json.loads(response.read().decode("utf-8"))
 
             elapsed_time = time.time() - start_time
