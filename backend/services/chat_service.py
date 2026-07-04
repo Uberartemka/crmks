@@ -339,3 +339,60 @@ async def unread_counts(current_user: Dict[str, Any]) -> Dict[int, int]:
         return result
     finally:
         conn.close()
+
+
+# ---------- Membership (topic only) ----------
+
+def _require_topic(cur, channel_id: int) -> None:
+    """Raise 400 if channel is not a topic — general/department membership is computed."""
+    cur.execute(q("SELECT type FROM channels WHERE id = %s"), (channel_id,))
+    row = cur.fetchone()
+    if not row:
+        raise HTTPException(404, "Канал не найден")
+    if row[0] != "topic":
+        raise HTTPException(400, "Членство редактируется только в тематических каналах")
+
+
+async def add_member(
+    channel_id: int,
+    user_id: int,
+    current_user: Dict[str, Any],
+) -> Dict[str, Any]:
+    _require_staff(current_user)
+    if current_user["role"] not in ("admin", "manager"):
+        raise HTTPException(403, "Только admin/manager могут добавлять участников")
+    conn = get_db()
+    try:
+        cur = conn.cursor()
+        _require_topic(cur, channel_id)
+        cur.execute(
+            q("INSERT INTO channel_members (channel_id, user_id) VALUES (%s, %s) ON CONFLICT DO NOTHING"),
+            (channel_id, user_id),
+        )
+        conn.commit()
+        return {"channel_id": channel_id, "user_id": user_id, "ok": True}
+    finally:
+        conn.close()
+
+
+async def remove_member(
+    channel_id: int,
+    user_id: int,
+    current_user: Dict[str, Any],
+) -> Dict[str, Any]:
+    _require_staff(current_user)
+    conn = get_db()
+    try:
+        cur = conn.cursor()
+        _require_topic(cur, channel_id)
+        # self can leave; admin/manager can remove others
+        if user_id != current_user["id"] and current_user["role"] not in ("admin", "manager"):
+            raise HTTPException(403, "Можно удалять только себя")
+        cur.execute(
+            q("DELETE FROM channel_members WHERE channel_id = %s AND user_id = %s"),
+            (channel_id, user_id),
+        )
+        conn.commit()
+        return {"channel_id": channel_id, "user_id": user_id, "ok": True}
+    finally:
+        conn.close()
