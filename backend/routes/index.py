@@ -353,6 +353,9 @@ def register_routes(app) -> None:
 
     app.include_router(chat_router)
 
+    from routes.chat_ws import router as chat_ws_router
+    app.include_router(chat_ws_router)
+
     from routes.tasks_legacy import router as tasks_legacy_router
 
     app.include_router(tasks_legacy_router)
