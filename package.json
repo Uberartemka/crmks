@@ -24,6 +24,7 @@
     "pinia": "^2.1.7",
     "tailwind-merge": "^2.3.0",
     "vue": "^3.4.0",
+    "vue-advanced-chat": "^2.1.2",
     "vue-router": "^4.3.0",
     "vue-toastification": "^2.0.0-rc.5",
     "vuedraggable": "^4.1.0"
