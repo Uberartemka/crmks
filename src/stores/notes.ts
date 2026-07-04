@@ -7,10 +7,10 @@ export const useNotesStore = defineStore('notes', () => {
   const items = ref<Note[]>([])
   const loading = ref(false)
 
-  async function list() {
+  async function list(params?: { tag?: string }) {
     loading.value = true
     try {
-      const { data } = await notesApi.list()
+      const { data } = await notesApi.list(params)
       items.value = data
       return data
     } finally {
