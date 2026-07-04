@@ -69,7 +69,11 @@ async def create_defect(
             raise HTTPException(403, "Ваш аккаунт не привязан к клиенту.")
         target_client_id = own
     else:
-        target_client_id = data.client_id or own or 0
+        # admin/manager: require explicit client_id (or fall back to own binding)
+        target_client_id = data.client_id or own
+        if not target_client_id:
+            conn.close()
+            raise HTTPException(400, "Укажите client_id (для какой компании создаётся дефект).")
 
     now = datetime.now().isoformat()
     cursor.execute(
