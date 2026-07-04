@@ -285,9 +285,9 @@ async function confirmAddNoteFromCall() {
           <button class="btn-primary text-sm" @click="openTaskModalFromCall">
             Создать задачу
           </button>
-          <button class="btn-secondary text-sm" @click="openNoteModalFromCall">
+          <BaseButton variant="secondary" class="text-sm" @click="openNoteModalFromCall">
             Добавить заметку
-          </button>
+          </BaseButton>
         </div>
       </div>
     </div>
