@@ -1,0 +1,27 @@
+/* Override vue-toastification default colors to match CRM palette.
+   Border-left 4px = type color (per visual brainstorm mockup). */
+
+.Vue-Toastification__toast--success {
+  background-color: #16a34a !important;
+  border-left: 4px solid #15803d !important;
+}
+.Vue-Toastification__toast--error {
+  background-color: #dc2626 !important;
+  border-left: 4px solid #b91c1c !important;
+}
+.Vue-Toastification__toast--info {
+  background-color: #2563eb !important;
+  border-left: 4px solid #1d4ed8 !important;
+}
+.Vue-Toastification__toast--warning {
+  background-color: #d97706 !important;
+  color: #0f172a !important;
+  border-left: 4px solid #b45309 !important;
+}
+.Vue-Toastification__toast--warning .Vue-Toastification__toast-body,
+.Vue-Toastification__toast--warning .Vue-Toastification__close-button {
+  color: #0f172a !important;
+}
+.Vue-Toastification__container.top-right {
+  z-index: 9999 !important;
+}
