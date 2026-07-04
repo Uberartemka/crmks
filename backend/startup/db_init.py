@@ -281,6 +281,33 @@ def init_catalog_tables() -> None:
                 CREATE INDEX IF NOT EXISTS idx_machinery_client ON machinery (client_id)
                 """
             )
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS orders (
+                    id            SERIAL PRIMARY KEY,
+                    client_id     INTEGER REFERENCES clients(id) ON DELETE CASCADE,
+                    created_by    INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                    order_number  VARCHAR(100),
+                    name          VARCHAR(500) NOT NULL,
+                    qty           INTEGER DEFAULT 1,
+                    total         NUMERIC(14,2) DEFAULT 0,
+                    status        VARCHAR(50) DEFAULT 'new',
+                    order_date    VARCHAR(100),
+                    created_at    VARCHAR(100),
+                    updated_at    VARCHAR(100)
+                )
+                """
+            )
+            cursor.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_orders_client ON orders (client_id)
+                """
+            )
+            cursor.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_orders_status ON orders (status)
+                """
+            )
         else:
             cursor.execute(
                 """
@@ -517,6 +544,33 @@ def init_catalog_tables() -> None:
             cursor.execute(
                 """
                 CREATE INDEX IF NOT EXISTS idx_machinery_client ON machinery (client_id)
+                """
+            )
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS orders (
+                    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                    client_id     INTEGER,
+                    created_by    INTEGER,
+                    order_number  TEXT,
+                    name          TEXT NOT NULL,
+                    qty           INTEGER DEFAULT 1,
+                    total         REAL DEFAULT 0,
+                    status        TEXT DEFAULT 'new',
+                    order_date    TEXT,
+                    created_at    TEXT,
+                    updated_at    TEXT
+                )
+                """
+            )
+            cursor.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_orders_client ON orders (client_id)
+                """
+            )
+            cursor.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_orders_status ON orders (status)
                 """
             )
 
