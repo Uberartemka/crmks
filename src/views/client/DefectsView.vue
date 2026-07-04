@@ -1,54 +1,132 @@
 <script setup lang="ts">
-import { ref } from 'vue'
-interface Defect { id: number; equipment: string; bearing: string; defect: string; date: string; status: string; action: string }
-const defects = ref<Defect[]>([
-  { id: 1, equipment: 'Виброгрохот ГИЛ-42', bearing: 'HHB 22315-E1-T41A', defect: 'Повышенная вибрация, износ дорожек качения', date: '28.05.2026', status: 'Требует замены', action: 'Заказана замена' },
-  { id: 2, equipment: 'Нория №2', bearing: 'FKD UC210', defect: 'Трещина наружного кольца', date: '25.05.2026', status: 'Критично', action: 'Срочный заказ отправлен' },
-])
-const newDefect = ref({ equipment: '', bearing: '', defect: '', action: '' })
-function addDefect() {
-  if (!newDefect.value.equipment) return
-  defects.value.unshift({
-    id: Date.now(),
-    equipment: newDefect.value.equipment,
-    bearing: newDefect.value.bearing,
-    defect: newDefect.value.defect,
-    date: new Date().toLocaleDateString('ru-RU'),
-    status: 'Требует замены',
-    action: newDefect.value.action,
-  })
-  newDefect.value = { equipment: '', bearing: '', defect: '', action: '' }
+import { ref, onMounted } from 'vue'
+import { useDefectsStore } from '@/stores/defects'
+import { useConfirm } from '@/composables/useConfirm'
+import { toast } from '@/plugins/toast'
+import BaseBadge from '@/components/ui/BaseBadge.vue'
+import BaseButton from '@/components/ui/BaseButton.vue'
+import type { DefectStatus } from '@/types/defect'
+
+const store = useDefectsStore()
+const { confirm } = useConfirm()
+
+const newDefect = ref({ equipment: '', bearing: '', description: '', status: 'new' as DefectStatus })
+const saving = ref(false)
+
+const STATUS_MAP: Record<DefectStatus, { label: string; type: 'success'|'warning'|'danger'|'info'|'gray' }> = {
+  new: { label: 'Новый', type: 'gray' },
+  critical: { label: 'Критично', type: 'danger' },
+  replacement_ordered: { label: 'Заказана замена', type: 'warning' },
+  resolved: { label: 'Решено', type: 'success' },
 }
+
+const STATUS_OPTIONS: { value: DefectStatus; label: string }[] = [
+  { value: 'new', label: 'Новый' },
+  { value: 'critical', label: 'Критично' },
+  { value: 'replacement_ordered', label: 'Заказана замена' },
+  { value: 'resolved', label: 'Решено' },
+]
+
+async function addDefect() {
+  if (!newDefect.value.equipment.trim()) {
+    toast.warning('Укажите оборудование')
+    return
+  }
+  saving.value = true
+  try {
+    await store.create({
+      equipment: newDefect.value.equipment,
+      bearing: newDefect.value.bearing || undefined,
+      description: newDefect.value.description,
+      status: newDefect.value.status,
+    })
+    newDefect.value = { equipment: '', bearing: '', description: '', status: 'new' }
+    toast.success('Дефект добавлен')
+  } catch (e: any) {
+    toast.error(e?.response?.data?.detail || 'Ошибка сохранения')
+  } finally {
+    saving.value = false
+  }
+}
+
+async function removeDefect(id: number) {
+  const ok = await confirm({
+    title: 'Удалить дефект?',
+    message: 'Запись о дефекте будет удалена безвозвратно.',
+    confirmText: 'Удалить',
+    danger: true,
+  })
+  if (!ok) return
+  try {
+    await store.remove(id)
+    toast.success('Дефект удалён')
+  } catch {
+    toast.error('Ошибка удаления')
+  }
+}
+
+onMounted(() => store.load().catch(() => toast.error('Не удалось загрузить дефекты')))
 </script>
 
 <template>
   <div class="p-6 space-y-6">
-    <h1 class="text-3xl font-extrabold font-bebas tracking-wide">Журнал дефектовки</h1>
-    <div class="card p-5 space-y-4">
-      <div class="text-xs font-bold text-neutral-500 uppercase">Новая запись</div>
-      <div class="grid md:grid-cols-4 gap-3">
-        <input v-model="newDefect.equipment" placeholder="Оборудование" class="input text-xs" />
-        <input v-model="newDefect.bearing" placeholder="Подшипник" class="input text-xs" />
-        <input v-model="newDefect.defect" placeholder="Описание дефекта" class="input text-xs" />
-        <button @click="addDefect" class="btn-primary text-xs">Добавить</button>
+    <h1 class="text-3xl font-extrabold font-bebas tracking-wide">Дефектовка оборудования</h1>
+
+    <!-- Form -->
+    <div class="card p-5 space-y-3">
+      <div class="text-xs font-bold text-neutral-500 uppercase mb-1">Добавить дефект</div>
+      <div class="grid md:grid-cols-2 gap-3">
+        <input v-model="newDefect.equipment" class="input" placeholder="Оборудование (напр. Нория №1)" />
+        <input v-model="newDefect.bearing" class="input" placeholder="Подшипник (напр. HHB 6205)" />
+      </div>
+      <textarea v-model="newDefect.description" class="input w-full resize-none" rows="2" placeholder="Описание дефекта"></textarea>
+      <div class="flex gap-3 items-end">
+        <div class="flex-1">
+          <label class="block text-[10px] font-bold text-neutral-500 uppercase mb-1">Статус</label>
+          <select v-model="newDefect.status" class="input">
+            <option v-for="s in STATUS_OPTIONS" :key="s.value" :value="s.value">{{ s.label }}</option>
+          </select>
+        </div>
+        <BaseButton variant="primary" :disabled="saving" @click="addDefect">
+          {{ saving ? 'Сохраняю…' : 'Добавить' }}
+        </BaseButton>
       </div>
     </div>
-    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-      <table class="w-full text-sm text-left">
-        <thead class="bg-slate-50 text-neutral-500 uppercase text-[10px] font-bold tracking-wider border-b border-slate-200">
-          <tr><th class="px-6 py-4">Оборудование</th><th class="px-6 py-4">Подшипник</th><th class="px-6 py-4">Дефект</th><th class="px-6 py-4 text-center">Дата</th><th class="px-6 py-4 text-center">Статус</th><th class="px-6 py-4">Действие</th></tr>
+
+    <!-- List -->
+    <div v-if="store.items.length === 0" class="card p-8 text-center">
+      <div class="text-sm font-bold text-neutral-700">Дефектов пока нет</div>
+      <div class="text-xs text-neutral-500 mt-1">Добавьте первый дефект через форму выше.</div>
+    </div>
+
+    <div v-else class="card overflow-hidden">
+      <table class="w-full text-xs text-left">
+        <thead class="bg-neutral-900 text-white font-bebas text-sm tracking-wider uppercase">
+          <tr>
+            <th class="px-4 py-3">Оборудование</th>
+            <th class="px-4 py-3">Подшипник</th>
+            <th class="px-4 py-3">Описание</th>
+            <th class="px-4 py-3 text-center">Статус</th>
+            <th class="px-4 py-3 text-center">Дата</th>
+            <th class="px-4 py-3"></th>
+          </tr>
         </thead>
-        <tbody class="divide-y divide-slate-200 text-xs font-semibold text-neutral-700">
-          <tr v-for="d in defects" :key="d.id" class="hover:bg-slate-50 transition">
-            <td class="px-6 py-4 font-bold text-neutral-900">{{ d.equipment }}</td>
-            <td class="px-6 py-4">{{ d.bearing }}</td>
-            <td class="px-6 py-4 text-neutral-600">{{ d.defect }}</td>
-            <td class="px-6 py-4 text-center">{{ d.date }}</td>
-            <td class="px-6 py-4 text-center">
-              <span class="px-2 py-0.5 rounded text-[9px] font-bold"
-                :class="d.status==='Критично'?'bg-red-100 text-red-700':'bg-amber-100 text-amber-700'">{{ d.status }}</span>
+        <tbody class="divide-y divide-neutral-100 font-medium">
+          <tr v-for="d in store.items" :key="d.id" class="hover:bg-slate-50 transition">
+            <td class="px-4 py-3 font-bold text-neutral-900">{{ d.equipment }}</td>
+            <td class="px-4 py-3 text-neutral-600">{{ d.bearing || '—' }}</td>
+            <td class="px-4 py-3 text-neutral-600 max-w-xs">{{ d.description || '—' }}</td>
+            <td class="px-4 py-3 text-center">
+              <BaseBadge :type="STATUS_MAP[d.status as DefectStatus].type">
+                {{ STATUS_MAP[d.status as DefectStatus].label }}
+              </BaseBadge>
             </td>
-            <td class="px-6 py-4 text-xs">{{ d.action }}</td>
+            <td class="px-4 py-3 text-center text-neutral-500">{{ (d.detected_at || d.created_at || '').slice(0, 10) }}</td>
+            <td class="px-4 py-3 text-center">
+              <button class="text-red-500 hover:text-red-700 transition" title="Удалить" @click="removeDefect(d.id)">
+                <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+              </button>
+            </td>
           </tr>
         </tbody>
       </table>

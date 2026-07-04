@@ -76,6 +76,41 @@ def apply_migration_004(conn) -> None:
     logger.info("[migration] 004_proposal_items_fk_products.sql applied.")
 
 
+def apply_migration_005(conn) -> None:
+    """Apply migration 005 — add users.client_id (links auth user → clients company).
+
+    Foundation for Group C domains (defects, orders, machinery). Idempotent and
+    safe on a fresh DB (guarded by information_schema checks). Assumes users +
+    clients tables already exist (created by startup/db_init).
+    """
+    sql_path = _MIGRATIONS_DIR / "005_users_client_id.sql"
+    sql = sql_path.read_text(encoding="utf-8")
+    conn.autocommit = True
+    cur = conn.cursor()
+    try:
+        cur.execute(sql)
+    finally:
+        cur.close()
+    logger.info("[migration] 005_users_client_id.sql applied.")
+
+
+def apply_migration_006(conn) -> None:
+    """Apply migration 006 — defects table (дефектовка оборудования клиентов).
+
+    Idempotent (CREATE TABLE IF NOT EXISTS + information_schema guard). Assumes
+    clients + users tables already exist (created by startup/db_init).
+    """
+    sql_path = _MIGRATIONS_DIR / "006_defects.sql"
+    sql = sql_path.read_text(encoding="utf-8")
+    conn.autocommit = True
+    cur = conn.cursor()
+    try:
+        cur.execute(sql)
+    finally:
+        cur.close()
+    logger.info("[migration] 006_defects.sql applied.")
+
+
 def apply_all(dsn: str) -> None:
     """Apply all migrations to the DB at `dsn`. Used on app startup."""
     import psycopg2
@@ -86,5 +121,7 @@ def apply_all(dsn: str) -> None:
         apply_migration_002(conn)
         apply_migration_003(conn)
         apply_migration_004(conn)
+        apply_migration_005(conn)
+        apply_migration_006(conn)
     finally:
         conn.close()
