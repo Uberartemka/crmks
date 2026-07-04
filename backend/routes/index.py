@@ -349,3 +349,8 @@ def register_routes(app) -> None:
     from routes.calls import router as calls_router
 
     app.include_router(calls_router)
+
+    # Reports (revenue / avg check / KP conversion / dynamics)
+    from routes.reports import router as reports_router
+
+    app.include_router(reports_router)
