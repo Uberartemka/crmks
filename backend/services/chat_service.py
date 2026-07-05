@@ -114,7 +114,7 @@ def _members_with_names(cur, ctype: str, dept_role: str | None, channel_id: int)
     if ctype == "topic":
         cur.execute(
             q(
-                """SELECT u.id, u.username, u.name FROM channel_members cm
+                """SELECT u.id, u.username, u.name, u.avatar_file_id FROM channel_members cm
                    JOIN users u ON u.id = cm.user_id
                    WHERE cm.channel_id = %s ORDER BY u.name"""
             ),
@@ -122,14 +122,23 @@ def _members_with_names(cur, ctype: str, dept_role: str | None, channel_id: int)
         )
     elif ctype == "department":
         cur.execute(
-            q("SELECT id, username, name FROM users WHERE role = %s ORDER BY name"),
+            q("SELECT id, username, name, avatar_file_id FROM users WHERE role = %s ORDER BY name"),
             (dept_role,),
         )
     else:  # general
         cur.execute(
-            q("SELECT id, username, name FROM users WHERE role IN ('admin','manager','employee') ORDER BY name")
+            q("SELECT id, username, name, avatar_file_id FROM users WHERE role IN ('admin','manager','employee') ORDER BY name")
         )
-    return [{"id": r[0], "username": r[1], "name": r[2]} for r in cur.fetchall()]
+    return [
+        {
+            "id": r[0],
+            "username": r[1],
+            "name": r[2],
+            "avatar_file_id": r[3],
+            "avatar_url": f"/api/files/{r[3]}" if r[3] else None,
+        }
+        for r in cur.fetchall()
+    ]
 
 
 # ---------- Membership helper ----------

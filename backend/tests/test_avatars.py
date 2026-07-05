@@ -99,3 +99,30 @@ def test_update_my_avatar_other_users_file_403(seeded_avatars):
             current_user={"id": 2, "username": "bob", "name": "Боб", "role": "manager", "client_id": None, "avatar_file_id": None},
         )
     assert exc.value.status_code == 403
+
+
+def test_chat_channels_members_include_avatar_url(seeded_avatars):
+    # Сидируем минимальный канал + member
+    import services.chat_service as svc
+    TEST_DSN = os.environ.get("TEST_DATABASE_URL", "postgresql://postgres:235813@localhost:5432/hhb_b2b_test")
+    conn = psycopg2.connect(TEST_DSN)
+    cur = conn.cursor()
+    cur.execute(
+        "CREATE TABLE IF NOT EXISTS channels (id SERIAL PRIMARY KEY, name TEXT, type TEXT, "
+        "department_role TEXT, created_by INTEGER, created_at TIMESTAMPTZ DEFAULT now(), archived BOOLEAN DEFAULT false)"
+    )
+    cur.execute(
+        "CREATE TABLE IF NOT EXISTS channel_members (channel_id INTEGER, user_id INTEGER, "
+        "joined_at TIMESTAMPTZ DEFAULT now(), PRIMARY KEY (channel_id, user_id))"
+    )
+    cur.execute("INSERT INTO channels (name, type) VALUES ('G', 'general')")
+    cur.execute("INSERT INTO channel_members (channel_id, user_id) VALUES (1, 1)")
+    conn.commit()
+    conn.close()
+
+    # запросить каналы как alice — members должны включать avatar_url
+    result = _run(svc.list_channels(current_user={"id": 1, "role": "manager"}))
+    ch = result[0]
+    member = next(m for m in ch["members"] if m["id"] == 1)
+    assert member["avatar_url"] == "/api/files/1"
+    assert member["avatar_file_id"] == 1

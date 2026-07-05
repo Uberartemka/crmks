@@ -20,7 +20,7 @@ def seeded_mem(db_conn, monkeypatch):
     for t in ["read_state", "messages", "channel_members", "channels"]:
         cur.execute(f"DROP TABLE IF EXISTS {t} CASCADE")
     cur.execute("DROP TABLE IF EXISTS users CASCADE")
-    cur.execute("CREATE TABLE users (id SERIAL PRIMARY KEY, username TEXT, role TEXT, name TEXT)")
+    cur.execute("CREATE TABLE users (id SERIAL PRIMARY KEY, username TEXT, role TEXT, name TEXT, avatar_file_id BIGINT NULL)")
     cur.execute(
         """CREATE TABLE channels (id SERIAL PRIMARY KEY, name TEXT, type TEXT,
         department_role TEXT, created_by INTEGER, created_at TIMESTAMPTZ DEFAULT now(),
