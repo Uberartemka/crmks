@@ -89,7 +89,7 @@ async function onChannelCreated() {
 </script>
 
 <template>
-  <aside class="flex flex-col h-full bg-slate-50 border-l border-slate-200 shrink-0 w-[360px]">
+  <aside class="flex flex-col h-full bg-slate-50 border-l border-slate-200 shrink-0 w-[720px]">
     <header class="flex items-center justify-between px-3 py-2 border-b border-slate-200 bg-white">
       <h3 class="font-semibold text-sm">Чат команды</h3>
       <button
@@ -114,6 +114,7 @@ async function onChannelCreated() {
         :show-audio="false"
         :textarea-action-enabled="false"
         :username-options="usernameOptions"
+        :responsive-breakpoint="400"
         lang="ru"
         height="100%"
         @send-message="onSend"
