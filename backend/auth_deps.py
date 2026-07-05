@@ -24,7 +24,7 @@ def get_current_user(request: Request) -> dict:
     conn = get_db()
     cursor = conn.cursor()
     cursor.execute(
-        q("SELECT id, username, name, role, client_id FROM users WHERE id = %s"),
+        q("SELECT id, username, name, role, client_id, avatar_file_id FROM users WHERE id = %s"),
         (user_id,),
     )
     row = cursor.fetchone()
@@ -39,6 +39,7 @@ def get_current_user(request: Request) -> dict:
         "name": row[2],
         "role": row[3],
         "client_id": row[4],
+        "avatar_file_id": row[5],
     }
 
 
@@ -61,7 +62,7 @@ async def get_current_user_async(request: Request) -> dict:
     if _use_pg:
         try:
             row = await async_fetch_one(
-                q("SELECT id, username, name, role, client_id FROM users WHERE id = %s"),
+                q("SELECT id, username, name, role, client_id, avatar_file_id FROM users WHERE id = %s"),
                 (user_id,),
             )
             if not row:
@@ -72,6 +73,7 @@ async def get_current_user_async(request: Request) -> dict:
                 "name": row[2],
                 "role": row[3],
                 "client_id": row[4],
+                "avatar_file_id": row[5],
             }
         except RuntimeError:
             # Async pool not ready — fallback to sync

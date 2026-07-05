@@ -21,6 +21,11 @@ logger = logging.getLogger("HHB_B2B")
 router = APIRouter(tags=["index"])
 
 
+def _avatar_url(avatar_file_id: int | None) -> str | None:
+    """Build the download URL for a user's avatar, or None if not set."""
+    return f"/api/files/{avatar_file_id}" if avatar_file_id else None
+
+
 def get_current_user_dep(request: Request) -> dict:
     return _get_current_user(request)
 
@@ -31,6 +36,10 @@ class PlanCreate(BaseModel):
     year: int
     calls_target: int
     registrations_target: int
+
+
+class AvatarUpdate(BaseModel):
+    file_id: int
 
 
 @router.get("/")
@@ -86,7 +95,35 @@ def logout(request: Request):
 
 @router.get("/api/auth/me")
 def me(current_user: dict = Depends(get_current_user_dep)):
-    return current_user
+    return {
+        **current_user,
+        "avatar_url": _avatar_url(current_user.get("avatar_file_id")),
+    }
+
+
+@router.patch("/api/users/me/avatar")
+def update_my_avatar(
+    data: AvatarUpdate,
+    current_user: dict = Depends(get_current_user_dep),
+):
+    """Set the current user's avatar to an existing file they uploaded."""
+    conn = get_db()
+    try:
+        cur = conn.cursor()
+        cur.execute(q("SELECT uploaded_by FROM files WHERE id = %s"), (data.file_id,))
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Файл не найден")
+        if row[0] != current_user["id"]:
+            raise HTTPException(status_code=403, detail="Можно использовать только свой файл")
+        cur.execute(
+            q("UPDATE users SET avatar_file_id = %s WHERE id = %s"),
+            (data.file_id, current_user["id"]),
+        )
+        conn.commit()
+        return {"ok": True, "avatar_file_id": data.file_id, "avatar_url": _avatar_url(data.file_id)}
+    finally:
+        conn.close()
 
 
 @router.get("/api/users")
@@ -101,7 +138,7 @@ def list_users(current_user: dict = Depends(get_current_user_dep)):
     cursor.execute(
         q(
             """
-            SELECT u.id, u.username, u.name, u.role, u.client_id, c.name
+            SELECT u.id, u.username, u.name, u.role, u.client_id, c.name, u.avatar_file_id
             FROM users u
             LEFT JOIN clients c ON c.id = u.client_id
             ORDER BY u.name
@@ -119,6 +156,8 @@ def list_users(current_user: dict = Depends(get_current_user_dep)):
             "role": r[3],
             "client_id": r[4],
             "client_name": r[5],
+            "avatar_file_id": r[6],
+            "avatar_url": _avatar_url(r[6]),
         }
         for r in rows
     ]

@@ -31,6 +31,7 @@ def seeded_users(db_conn, monkeypatch):
         name TEXT,
         role TEXT DEFAULT 'employee',
         client_id INTEGER REFERENCES clients(id) ON DELETE SET NULL,
+        avatar_file_id BIGINT NULL,
         created_at TEXT)"""
     )
     cur.execute("INSERT INTO clients (name) VALUES ('ООО Ромашка'), ('ООО Вектор')")

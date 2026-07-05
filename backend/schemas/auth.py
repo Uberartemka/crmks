@@ -26,3 +26,5 @@ class UserOut(BaseModel):
     role: str
     client_id: Optional[int] = None
     client_name: Optional[str] = None
+    avatar_file_id: Optional[int] = None
+    avatar_url: Optional[str] = None
