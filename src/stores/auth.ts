@@ -9,6 +9,16 @@ export const useAuthStore = defineStore('auth', () => {
 
   const isAuthenticated = computed(() => !!token.value && !!user.value)
   const role = computed<Role | null>(() => user.value?.role ?? null)
+  const avatarUrl = computed(() => user.value?.avatar_url ?? null)
+
+  async function updateAvatar(fileId: number) {
+    const { api } = await import('@/api/client')
+    const { data } = await api.patch('/api/users/me/avatar', { file_id: fileId })
+    if (user.value) {
+      user.value = { ...user.value, avatar_file_id: fileId, avatar_url: data.avatar_url }
+      localStorage.setItem('ksvrn_user', JSON.stringify(user.value))
+    }
+  }
 
   function _save(userData: User, tok: string) {
     token.value = tok
@@ -79,5 +89,5 @@ export const useAuthStore = defineStore('auth', () => {
     localStorage.removeItem('ksvrn_user')
   }
 
-  return { user, token, isAuthenticated, role, login, fetchMe, logout }
+  return { user, token, isAuthenticated, role, avatarUrl, login, fetchMe, logout, updateAvatar }
 })

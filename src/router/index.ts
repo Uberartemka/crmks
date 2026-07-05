@@ -6,6 +6,12 @@ const routes: RouteRecordRaw[] = [
   { path: '/catalog', component: () => import('@/views/CatalogView.vue'), meta: { public: true } },
 
   {
+    path: '/profile',
+    component: () => import('@/views/ProfileView.vue'),
+    meta: { roles: ['admin', 'manager', 'employee', 'client'] },
+  },
+
+  {
     path: '/admin',
     component: () => import('@/layouts/AdminLayout.vue'),
     meta: { roles: ['admin'] },
