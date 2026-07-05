@@ -62,6 +62,17 @@ export const useChatStore = defineStore('chat', () => {
     unread.value[channelId] = 0
   }
 
+  async function deleteMessage(channelId: number, messageId: number) {
+    await chatApi.deleteMessage(messageId)
+    // optimistic: mark as deleted locally (matches backend soft-delete:
+    // the message stays in DB with deleted_at set; backend would return
+    // content='сообщение удалено' on next list, but we update in place).
+    const list = messagesByChannel.value[channelId] ?? []
+    messagesByChannel.value[channelId] = list.map((m) =>
+      m.id === messageId ? { ...m, deleted_at: new Date().toISOString() } : m,
+    )
+  }
+
   // Called by useChatSocket when a WS 'message' frame arrives
   function onIncomingMessage(msg: ChatMessage) {
     const list = messagesByChannel.value[msg.channel_id] ?? []
@@ -91,7 +102,7 @@ export const useChatStore = defineStore('chat', () => {
   return {
     channels, activeChannelId, activeChannel, activeMessages,
     messagesByChannel, unread, typingUsers, loading,
-    loadChannels, loadUnread, loadHistory, sendMessage, markRead,
+    loadChannels, loadUnread, loadHistory, sendMessage, markRead, deleteMessage,
     setActive, onIncomingMessage, onUnread, onTyping,
   }
 })

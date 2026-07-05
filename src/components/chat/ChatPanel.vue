@@ -94,6 +94,12 @@ function onReply(_event: any) {
   // vue-advanced-chat handles the reply UX itself; replyMessage comes back in onSend.
 }
 
+function onDeleteMessage(event: any) {
+  // VAC fires delete-message with { messageId, roomId } when user picks delete.
+  const { messageId, roomId } = event.detail[0]
+  store.deleteMessage(Number(roomId), Number(messageId))
+}
+
 async function onFetch(event: any) {
   const { room, options } = event.detail[0]
   const channelId = Number(room.roomId)
@@ -154,6 +160,7 @@ async function onChannelCreated() {
         @fetch-messages="onFetch"
         @add-room="openCreateModal"
         @message-reply="onReply"
+        @delete-message="onDeleteMessage"
       />
     </div>
     <CreateChannelModal
