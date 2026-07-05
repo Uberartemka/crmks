@@ -26,7 +26,13 @@ const canCreate = computed(() => auth.role === 'admin' || auth.role === 'manager
 
 // Имя отправителя видно при ≥2 участников (вместо дефолта VAC ≥3).
 // currentUser:false — своё собственное имя не показываем.
-const usernameOptions = { minUsers: 2, currentUser: false }
+//
+// ВАЖНО: vue-advanced-chat — это web component (custom element). Vue
+// сериализует объектные пропы в HTML-атрибуты, и {minUsers:2,...} превратится
+// в "[object Object]", что ломает castObject → JSON.parse внутри VAC →
+// каскад TypeError'ов, роняющий весь чат (имена, аватары, удаление).
+// Поэтому передаём СТРОКУ JSON — VAC сам распарсит её через castObject.
+const usernameOptions = JSON.stringify({ minUsers: 2, currentUser: false })
 
 // Ref на vue-advanced-chat, чтобы инъектировать стиль в его Shadow DOM
 // (VAC прячет textarea внутри shadow root — внешний CSS его не достаёт).
