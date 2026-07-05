@@ -181,6 +181,19 @@ def apply_migration_010(conn) -> None:
     logger.info("[migration] 010_files.sql applied.")
 
 
+def apply_migration_011(conn) -> None:
+    """Apply migration 011 — user avatars (users.avatar_file_id → files)."""
+    sql_path = _MIGRATIONS_DIR / "011_user_avatars.sql"
+    sql = sql_path.read_text(encoding="utf-8")
+    conn.autocommit = True
+    cur = conn.cursor()
+    try:
+        cur.execute(sql)
+    finally:
+        cur.close()
+    logger.info("[migration] 011_user_avatars.sql applied.")
+
+
 def apply_all(dsn: str) -> None:
     """Apply all migrations to the DB at `dsn`. Used on app startup."""
     import psycopg2
@@ -197,5 +210,6 @@ def apply_all(dsn: str) -> None:
         apply_migration_008(conn)
         apply_migration_009(conn)
         apply_migration_010(conn)
+        apply_migration_011(conn)
     finally:
         conn.close()
