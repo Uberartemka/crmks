@@ -26,6 +26,7 @@ export interface ChatMessage {
   deleted_at?: string | null
   author_username?: string | null
   author_name?: string | null
+  avatar_url?: string | null
 }
 
 export interface WsTicket {

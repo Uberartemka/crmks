@@ -95,9 +95,11 @@ function onReply(_event: any) {
 }
 
 function onDeleteMessage(event: any) {
-  // VAC fires delete-message with { messageId, roomId } when user picks delete.
-  const { messageId, roomId } = event.detail[0]
-  store.deleteMessage(Number(roomId), Number(messageId))
+  // VAC fires delete-message with { message, roomId } — the WHOLE message
+  // object (with _id), not a bare messageId. Reading event.detail[0].messageId
+  // returned undefined → Number(undefined)=NaN → silent no-op.
+  const { message, roomId } = event.detail[0]
+  store.deleteMessage(Number(roomId), Number(message._id))
 }
 
 async function onFetch(event: any) {

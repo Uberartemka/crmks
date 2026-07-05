@@ -210,7 +210,8 @@ async def list_messages(
                 q(
                     """SELECT m.id, m.channel_id, m.author_id, m.content, m.reply_to_id,
                         m.created_at, m.edited_at, m.deleted_at, u.username, u.name,
-                        p.id, p.content, p.author_id, pu.name, p.deleted_at
+                        p.id, p.content, p.author_id, pu.name, p.deleted_at,
+                        u.avatar_file_id
                         FROM messages m
                         LEFT JOIN users u ON u.id = m.author_id
                         LEFT JOIN messages p ON p.id = m.reply_to_id
@@ -225,7 +226,8 @@ async def list_messages(
                 q(
                     """SELECT m.id, m.channel_id, m.author_id, m.content, m.reply_to_id,
                         m.created_at, m.edited_at, m.deleted_at, u.username, u.name,
-                        p.id, p.content, p.author_id, pu.name, p.deleted_at
+                        p.id, p.content, p.author_id, pu.name, p.deleted_at,
+                        u.avatar_file_id
                         FROM messages m
                         LEFT JOIN users u ON u.id = m.author_id
                         LEFT JOIN messages p ON p.id = m.reply_to_id
@@ -313,6 +315,7 @@ async def send_message(
             "created_at": created_at.isoformat() if created_at else None,
             "edited_at": None,
             "deleted_at": None,
+            "avatar_url": f"/api/avatars/{current_user['avatar_file_id']}" if current_user.get("avatar_file_id") else None,
         }
     finally:
         conn.close()
@@ -376,6 +379,10 @@ def _message_row_to_dict(r) -> Dict[str, Any]:
             "author_id": r[12],
             "author_name": r[13],
         }
+    # r[15] = u.avatar_file_id (NULL if author has no avatar or was deleted).
+    # avatar_url uses the public /api/avatars/{id} path so <img>/CSS can fetch
+    # it without auth (vue-advanced-chat renders it via background-image).
+    avatar_file_id = r[15] if len(r) > 15 else None
     return {
         "id": r[0],
         "channel_id": r[1],
@@ -389,6 +396,7 @@ def _message_row_to_dict(r) -> Dict[str, Any]:
         "author_username": r[8],
         "author_name": r[9],
         "reply_message": reply_message,
+        "avatar_url": f"/api/avatars/{avatar_file_id}" if avatar_file_id else None,
     }
 
 

@@ -40,7 +40,7 @@ export function toRoom(c: ChannelWithMembers, unread: number): VACRoom {
 }
 
 export function toMessage(
-  m: ChatMessage & { author_username?: string | null; author_name?: string | null },
+  m: ChatMessage & { author_username?: string | null; author_name?: string | null; avatar_url?: string | null },
 ): VACMessage {
   const created = m.created_at ? new Date(m.created_at) : null
   return {
@@ -48,6 +48,10 @@ export function toMessage(
     content: m.deleted_at ? 'сообщение удалено' : m.content,
     senderId: String(m.author_id),
     username: m.author_name ?? m.author_username ?? 'Неизвестно',
+    // vue-advanced-chat reads message.avatar (NOT users[].avatar) to render the
+    // sender's picture next to the message. Without this, avatars never show
+    // in the message list even if users[].avatar is set.
+    avatar: m.avatar_url ?? '',
     date: created ? created.toLocaleDateString('ru-RU') : '',
     timestamp: created
       ? created.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
