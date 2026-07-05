@@ -1,21 +1,22 @@
-# 🎀 Хэндофф сессии 2026-07-04 (большая сессия)
+# 🎀 Хэндофф сессий 2026-07-04 → 2026-07-05
 
-> Точка возобновления. За сессию: 8 крупных задач (предыдущий блок) + Group C activation + **полноценный real-time чат сотрудников (Подсистема I) с деплоем на прод**.
+> Точка возобновления. За две сессии: 8 крупных задач + Group C + **чат сотрудников (Подсистема I)** + **reply** + **универсальный файловый сервис (Подсистема II)** + **переезд чата в правую панель** + **аватарки пользователей + минимальный ЛК**.
 
 ## 📍 Проект
 
 **frontcrm** — CRM для индустриальных дистрибьюторов подшипников. Vue 3 + FastAPI + PostgreSQL.
 
-- **Репо:** [github.com/Uberartemka/crmks](https://github.com/Uberartemka/crmks) (ветка `main`, HEAD `e5b8d9e`)
+- **Репо:** [github.com/Uberartemka/crmks](https://github.com/Uberartemka/crmks) (ветка `main`, HEAD `c4fc507`)
 - **Локальный путь:** `D:\Projects\frontcrm`
 - **Прод:** **https://crmdot.ru** (домен + SSL Let's Encrypt, до 2026-10-02, авто-renew)
-- **Тесты backend:** **154/154** (`cd backend && python -m pytest`)
-- **Тесты frontend:** 5 (`npm run test` — vitest: useConfirm + useChatSocket)
+- **Тесты backend:** **180/180** (`cd backend && python -m pytest`) — было 154
+- **Тесты frontend:** **15** (`npm run test` — vitest: useConfirm, useChatSocket, useChatAdapter, filesApi, ChatPanel, Avatar)
 - **Серверы:** CRM `72.56.246.21` (herodot), сайты `193.164.149.3`. Ключ `~/.ssh/kyk_server_key`.
+- **Логи приложения (прод):** `/var/log/crmks/api.log` (НЕ journalctl — service unit пишет stdout/stderr туда). Это важно для дебага боевых багов.
 
 **Вход в CRM:** `admin` / `4qszJO0sF8oyGR4h` (случайный пароль, задаётся через UI Personnel).
 
-**Demo client-креды** (только dev/demo, после запуска сида — см. ниже; **ротация перед продом**):
+**Demo client-креды** (только dev/demo, после запуска сида; **ротация перед продом**):
 
 | Логин | Пароль | Клиент |
 |---|---|---|
@@ -27,183 +28,177 @@
 
 ---
 
-## ✅ Что сделано за сессию (8 крупных задач + 1 доделка)
+## ✅ Что сделано за сессию 2026-07-05
 
-### 1. Импорт kyk.products (735 товаров)
-- Скрипт `scripts/import_kyk_products.py` (staging → products, INSERT + ENRICH через COALESCE, case-insensitive brand)
-- 735 товаров залиты: 478 → **1213 total** (563 active). Все 735 с характеристиками (rs_min/load/rpm/seal/weight)
-- Delivery `deploy/import_kyk_products.sh` (COPY с JOIN с сайт-сервера → CSV → staging)
-- **Нюанс:** форматы code в CRM («Подшипник HQ…+ KYK») и kyk («6203 ZZ») не совпали → 0 enrich, все 735 зашли как INSERT. Обогащение старых 357 KYK — отдельная задача.
+### 11. 💬 Reply в чате (Подсистема I — доводка)
+- Спека `docs/superpowers/specs/2026-07-04-chat-reply-design.md` + план `2026-07-04-chat-reply.md` (8 TDD-задач).
+- **Backend:** `list_messages` self-join `messages→messages` (reply_message с content/author_name), `send_message` валидирует parent (exists + not deleted + same channel) с **graceful обнулением** невалидного `reply_to_id` (текст не теряется). Без миграции (`reply_to_id` уже был в 009).
+- **Frontend:** `toMessage` строит `replyMessage`, ChatPanel ловит `@message-reply`, store `sendMessage(channelId, content, replyToId)`.
+- +6 backend тестов, +2 frontend.
 
-### 2. Proposal-flow переведён на products
-- Миграция 004: `proposal_items.sku_id` FK `sku_catalog CASCADE` → `products RESTRICT`
-- 4 SQL-точки (proposals.py:137,346; email_service.py:51; ai_claude_agent.py:282) на `products + brands`
-- `/api/catalog/skus` (список для /admin/proposals) переписан на products — **все 1213 SKU видны**
-- 12 тестов proposal-флоу
+### 12. 📎 Универсальный файловый сервис (Подсистема II)
+- Спека `2026-07-04-chat-attachments-design.md` (с ревью-правками: tenant YAGNI, temp-fs, makedirs, header injection) + план `2026-07-04-chat-attachments.md` (12 задач).
+- **Backend (миграция 010 `files`):**
+  - `services/file_service.py` — `save_upload` (sha256 streaming, atomic rename с temp **внутри MEDIA_ROOT** для same-FS, `os.makedirs` директории месяца, Pillow thumbnail), `get_file` (owner-check), `is_allowed` (двойная проверка MIME AND ext), `sanitize_name` (header-injection defense).
+  - `routes/files.py` — `POST /api/files`, `GET /api/files/{id}` (StreamingResponse с RFC 5987 `filename*`), `GET /api/files/{id}/thumbnail`.
+  - +14 тестов (upload PDF/image/oversized/mime-mismatch, owner-check, path-traversal, header-injection defense-in-depth).
+- **Frontend:** `StoredFile` тип, `filesApi`, `FileUploader.vue` (с drag-drop), `FilePreview.vue`.
+- **Деплой:** `libmagic1`/`libjpeg-dev`/`zlib1g-dev` системные пакеты + `python-magic`/`Pillow`/`python-multipart` Python-deps. nginx `client_max_body_size 100m`. MEDIA_ROOT `/var/www/crmks/media` (owner **`crmks:crmks`**, не www-data — сервис работает под юзером `crmks`).
+- **Боевой баг при деплое:** `PermissionError: Permission denied` — создал media с owner www-data, а сервис под crmks. Фикс: `chown -R crmks:crmks media`.
+- ⚠️ **Чат-интеграция файлов (`messages.attachment_id`, drag в чат) — НЕ сделана, отложена.** Базовый файловый сервис готов, но как самостоятельная ценность (аватарки, будущие КП-приложения).
 
-### 3. GLM (BigModel) как primary AI
-- `call_claude()` каскад: **GLM primary** (glm-4.5-flash), Anthropic/Kimi фолбэк
-- `/api/ai/search` → GLM вместо DeepSeek (+ markdown-fence strip + timeout 30s)
-- `kimi_client`/agent-loop → GLM через env (FC убран, function calling работает)
-- Оптимизация промптов: `max_tokens=1024` (reasoning-модель!), JSON_SYSTEM_PROMPT, сжатие промптов
-- **Ответ 18с → 6-8с** после оптимизации
-- Ключ GLM: `960e47b3e0ec465ca28c1eb11ac7e0ce.vqtU6K0T11FeEiKt` (BigModel/Zhipu, free tier)
+### 13. 🎨 Переезд чата в правую панель (Подсистема A большого трека «чат+AI вместе»)
+Большой трек «объединить чат с коллегами + AI в одном месте + уведомления со звуком» декомпозирован на 3 подсистемы:
+- **A. Переезд чата** (этот пункт) — ✅ сделано
+- **B. AI как канал** — отдельная спека позже
+- **C. Уведомления со звуком** — отдельная спека позже
 
-### 4. UI Волна 1 — компонентная база
-- **BaseButton** (5 variants), **BaseBadge** (6 types, WCAG AA), **Toast** (vue-toastification@next, top-right, brand-themed), **ConfirmModal** + `useConfirm` composable (Promise-based, parallel-safe, a11y)
-- Миграции: 4 alert()→toast (ProposalBuilder), 7 prompt()→модалки (NotesGrid, QuickAddBar, CallsView), мёртвые btn-* классы→BaseButton (TaskBoard, CallsView), confirm на удаление (ClientsView)
-- Удалён мёртвый cva-Button.vue
-- Vitest установлен, 3 теста useConfirm
+- Спека `2026-07-05-chat-panel-relocation-design.md` + план (8 задач).
+- **Frontend-only** (без backend, без миграций):
+  - Создан `src/components/chat/ChatPanel.vue` (логика из удалённого `ChatView.vue` + header с кнопкой закрытия).
+  - `WorkspaceLayout.vue`: `AIAssistantPanel` → `ChatPanel`, FAB «AI ✨» → «Чат», `isStaff` gate (клиенты не видят).
+  - Sidebar: убраны пункты «Чат» (3 роли). Router: `/chat` → редирект на `/dashboard`. `ChatView.vue` удалён.
+  - `AIAssistantPanel.vue` оставлен как **dead code** (для Подсистемы B).
+  - Панель `w-[720px]`, мягкая тень `shadow-[-12px_0_40px_-12px_rgba(0,0,0,0.25)]`.
+  - `:responsive-breakpoint="400"` — VAC трактует 720px панель как «широкую» (rooms + messages рядом).
+  - **Бонус:** `:username-options="JSON.stringify({minUsers:2, currentUser:false})"` — имя отправителя видно при ≥2 участников.
+  - **CSS-инъекция в Shadow DOM:** `ChatPanel` после mount инъектирует `<style>` в `shadowRoot` VAC для `.vac-textarea` (height 20→30px, ×1.5) — VAC прячет textarea в shadow root, внешний CSS её не достаёт.
+  - +2 frontend теста (ChatPanel mount + close event), + vitest Vue-поддержка (`@vitejs/plugin-vue` + isCustomElement в vitest.config.ts — до этого `.vue` SFC-тесты не работали).
 
-### 5. UI Волна 2 — удаление моков (Группа A)
-- `USE_MOCKS`/`mockEvents`/`localFallback`/`buildDemoPayload` полностью вычищены (−208 строк)
-- events store, auth store, LoginView, CatalogView, PlanView — все на реальных API
-- CatalogView: empty/error states + toast вместо фейк-фолбэка
-- PlanView: empty-state для admin вместо demo-данных
-- `VITE_USE_MOCKS` удалён из env.d.ts + .env + .env.example
+### 14. 👤 Аватарки пользователей + минимальный ЛК
+- Спека `2026-07-05-user-avatars-profile-design.md` + план (12 задач).
+- **Backend (миграция 011 `users.avatar_file_id`):**
+  - `UserOut.avatar_file_id` + `avatar_url`, `me`/`list_users`/chat members отдают avatar_url.
+  - `PATCH /api/users/me/avatar` (validates `uploaded_by == current_user.id` — нельзя привязать чужой файл).
+  - **Публичный endpoint `GET /api/avatars/{file_id}` — БЕЗ auth.** Причина: `<img src>` и CSS `background-image` не могут отправить Bearer-токен, поэтому приватные файлы (`/api/files/{id}`) не работают для аватарок. Endpoint отдаёт **только** файлы, привязанные к чьему-то аватару (`EXISTS subquery on users.avatar_file_id`) — нельзя abuses для скачивания произвольных приватных файлов.
+  - +6 backend тестов.
+- **Frontend:**
+  - `Avatar.vue` (~30 строк): `<img>` если `src`, иначе **инициалы + детерминированный HSL-цвет** из хеша name. Без npm-зависимости (подсмотрено API у `vue3-avatar`, своё实现).
+  - `ProfileView.vue` (минимальный ЛК `/profile`): аватар + имя + `FileUploader` (drag-drop) для смены.
+  - Интеграция в 4 места: ChatPanel (через `useChatAdapter`), AppSidebar (возле username + ссылка «Профиль»), PersonnelView (колонка), ProfileView.
+  - `auth.ts`: `avatarUrl` getter, `updateAvatar(fileId)` action.
+  - +4 frontend теста.
 
-### 6. Группа B — PlansView + AuditView
-- Удалён мёртвый `admin/PlansView.vue` (не в роутере, −64 строки)
-- Backend: фильтр `GET /api/notes?tag=audit` (опц. параметр, 3 теста)
-- AuditView: загрузка последнего аудита + восстановление чек-листа + блок «История визитов» + toast
+### 15. 🐛 Боевые фиксы (после деплоя, по stack trace из браузера)
+**4 бага разом, все — мои ошибки проектирования VAC-интеграции:**
 
-### 7. Группа C — 4 новых домена (с нуля)
-- **Фундамент:** миграция 005 `users.client_id` (auth-user ↔ client-company связь) + `get_current_user` возвращает client_id
-- **Defects** (миграция 006): CRUD `/api/defects`, DefectsView rewrite (BaseBadge статусов, toast, confirm)
-- **Machinery** (миграция 007): CRUD `/api/machinery`, MachineryView rewrite (wear bar, BaseBadge)
-- **Orders** (миграция 008): CRUD `/api/orders`, OrdersView rewrite (4-step tracker, BaseBadge)
-- **Reports**: `/api/reports/metrics` (реальные метрики из orders/proposals: выручка, средний чек, конверсия КП, 6-мес динамика), ReportsView rewrite (0 хардкодов)
-- Каждый домен: 5 backend-тестов (owner-check, client_id binding) = +20 тестов
-- Паттерн: router → service → db, Depends(get_current_user), owner-check, FK-safe create, try/finally cleanup
+1. **Имена/аватары/удаление сломаны каскадно** → `username-options` передавался как объект, VAC (web-component) сериализует его в HTML-атрибут как `"[object Object]"` → `castObject` падает на `JSON.parse` → ломает весь VAC. **Фикс:** передавать `JSON.stringify({...})`.
+2. **Аватары не видны (битая картинка в sidebar, пусто в чате)** → `/api/files/{id}` требует auth, `<img>` не шлёт Bearer → 401. **Фикс:** публичный `/api/avatars/{id}`.
+3. **Аватары в чате не видны (в sidebar — есть)** → VAC читает `message.avatar` (per-message), не `users[].avatar` (per-room). **Фикс:** backend `list_messages`/`send_message` отдают `avatar_url` автора, адаптер `toMessage` добавляет `avatar: m.avatar_url`.
+4. **Удаление не работает (silent)** → VAC эмитит `delete-message` с `{message, roomId}` (весь объект), а handler читал `messageId` (которого нет) → `Number(undefined)=NaN` → silent fail. **Фикс:** читать `event.detail[0].message._id`.
 
-### 8. Security + домен
-- Demo-пароли удалены из LoginView.vue + db_init.py seed. Admin создаётся со **случайным паролем** (вывод в лог один раз). **Нет автосброса.**
-- Бандл пересобран, demo-кредов в dist/ нет (grep чист)
-- **Домен crmdot.ru** + SSL Let's Encrypt (certbot, до 2026-10-02)
-- nginx `server_name crmdot.ru www.crmdot.ru 72.56.246.21`, HTTP→HTTPS редирект
+**Урок (канарейка):** оба бага 3+4 — одной природы: угадывала API VAC вместо чтения исходников. VAC хранит avatar **в сообщениях**, эмитит **весь объект**. Это надо проверять, не угадывать.
 
-### 9. Group C activation — client_id binding + demo-данные (доделка)
-- **Backend:** `UserCreate`/`UserOut` (`schemas/auth.py`) получили опц. `client_id` (+ `client_name` в выдаче). `POST /api/users` сохраняет привязку и требует `client_id` для `role=client` (400 иначе). `GET /api/users` переписан с `LEFT JOIN clients` → возвращает `client_name` (admin без привязки даёт NULL, не пропадает из списка).
-- **Frontend:** `PersonnelView` переписан — добавлена роль **«Клиент»** в селекте + дропдаун компании (грузится из `useClientsStore`), колонка «Компания» в таблице. Заодно переведён на `BaseButton` + `toast` (волна консистентности). `api/users.ts` + `stores/users.ts` пробрасывают `client_id`.
-- **Скрипт сида** `scripts/seed_client_users_and_demo.py` (идемпотентный, каждый блок по `COUNT(*)==0`): 5 client-юзеров (фиксированные пароли, привязка по `bitrix_id` к seed-клиентам) + 6 demo orders (несколько со статусом delivered/paid/shipped за последние 6 мес → Reports оживает) + demo machinery (wear 30/55/82/88%) + demo defects. Запуск: `python -m scripts.seed_client_users_and_demo`.
-- **Тесты:** `test_users_client_binding.py` (+5) → **121/121**. TDD: сначала красные, потом schema/route → зелёные.
+---
 
-### 10. 💬 Чат сотрудников (Подсистема I) — real-time messaging с нуля + деплой
+## 📋 Спеки и планы (оба дня)
 
-Цель: «общий чат для всех сотрудников + каналы по отделам и темам → автономный документооборот». Это **мега-запрос**, декомпозированный на 3 подсистемы: I (real-time чат — выполнено), II (вложения — позже), III (документооборот со статусами — позже).
+Все в `docs/superpowers/specs/` и `docs/superpowers/plans/`:
 
-**Архитектура:** «запись через REST, доставка через WebSocket» (паттерн Slack/Mattermost). WS-auth через одноразовый ticket (Redis, атомарный GETDEL). Per-user rate-limit на Redis (INCR+EXPIRE, корректен на N воркерах). 3 типа каналов: `general` (все staff), `department` (по роли), `topic` (явные участники). Клиенты чат не видят.
-
-- **Спека:** `docs/superpowers/specs/2026-07-04-chat-messaging-design.md` (+ 6 review-правок: GETDEL atomicity, PG partial-indexes вместо NULLS NOT DISTINCT, Redis rate-limit вместо IP-based, CHECK content<=10000, 400 на general/department members, запрет v-html)
-- **План:** `docs/superpowers/plans/2026-07-04-chat-messaging.md` (16 TDD-задач, исполнено через subagent-driven-development)
-- **Backend (миграция 009 + сервисы + REST + WS):**
-  - Миграция 009: `channels`/`channel_members`/`messages` (BIGSERIAL, soft-delete, CHECK content)/`read_state` + засев general-канала. Partial UNIQUE indexes (PG13+-совместимо).
-  - `services/chat_service.py` — channels (role-aware), messages (cursor pagination на `id`), read_state (GREATEST-монотонный курсор), membership (400 на general/department).
-  - `services/chat_connections.py` — in-memory `CONNECTIONS` реестр + `fanout()` (единая точка расширения на multi-worker через Redis pub/sub).
-  - `services/chat_redis.py` — `issue_ws_ticket`/`consume_ws_ticket` (GETDEL) + `allow_message` (INCR+EXPIRE, ~20 msg/мин).
-  - `routes/chat.py` (11 REST endpoints) + `routes/chat_ws.py` (WS handler `/ws/chat`).
-  - +33 теста (5 connections + 5 redis + 4 channels + 6 messages + 2 read-state + 4 membership + 3 ws + 4 members/users) → **154/154**.
-- **Frontend (vue-advanced-chat интеграция):**
-  - Подключён **vue-advanced-chat ^2.1.2** (web-component, Slack-подобный UI) с `register()` в `main.ts` + `isCustomElement` в `vite.config.ts`.
-  - `composables/useChatAdapter.ts` — маппинг наш формат ↔ формат библиотеки (`toRoom`/`toMessage`).
-  - `views/ChatView.vue` — обёртка над `<vue-advanced-chat>`, WS-connect on mount.
-  - `components/chat/CreateChannelModal.vue` — создание topic-канала + выбор участников.
-  - Старые `ChannelList`/`MessageList`/etc оставлены в коде (не удалял), ChatView их больше не использует.
-- **Деплой на прод** (merge → push → ssh): `git pull` + `npm install` (vue-advanced-chat) + `npm run build` + restart `crmks-api`. nginx `/ws/` location добавлен (upgrade-хедеры, proxy_read_timeout 86400). Backup БД `/root/crmks_backup_20260704_175917.sql.gz`.
-- **Зависимости:** `httpx-ws` (WS TestClient), `jsdom` (vitest env), `vue-advanced-chat` (UI).
-
-**Endpoints чата (все под `Depends(get_current_user)`, staff-only):**
-```
-GET    /api/chat/channels                      — список видимых каналов (с members[])
-POST   /api/chat/channels                      — создать topic (admin/manager)
-GET    /api/chat/channels/{id}/messages        — история (cursor: ?before=&limit=)
-POST   /api/chat/channels/{id}/messages        — отправить (rate-limit + WS fanout)
-PATCH  /api/chat/messages/{id}                 — редактировать (только автор)
-DELETE /api/chat/messages/{id}                 — soft-delete (автор/admin)
-POST   /api/chat/channels/{id}/read            — отметить прочитанным (MAX(id) курсор)
-GET    /api/chat/unread                        — {channel_id: count}
-POST   /api/chat/channels/{id}/members         — добавить в topic
-DELETE /api/chat/channels/{id}/members/{uid}   — убрать / покинуть (topic only, 400 на general/department)
-GET    /api/chat/members?channel_id=           — участники канала (room-info панель)
-GET    /api/chat/users                         — все staff (для invite-дропдауна)
-POST   /api/chat/ws-ticket                     — одноразовый ticket (30с) для WS
-WS     /ws/chat?ticket=                        — real-time push (message/typing/unread)
-```
+| Дата | Тема | Спека | План |
+|---|---|---|---|
+| 07-03 | Мультитенантность + масштабирование | `2026-07-03-multitenancy-and-scalability-design.md` | (watchdog план есть) |
+| 07-04 | Чат (Подсистема I) | `2026-07-04-chat-messaging-design.md` | `2026-07-04-chat-messaging.md` ✅ |
+| 07-04 | Defects домен | `2026-07-04-defects-domain-design.md` | `2026-07-04-defects-domain.md` ✅ |
+| 07-04 | UI волна 1 | `2026-07-04-ui-system-wave1-design.md` | `2026-07-04-ui-system-wave1.md` ✅ |
+| 07-04 | Единый каталог API | `2026-07-04-unified-catalog-api-design.md` | `2026-07-04-unified-catalog-api.md` ✅ |
+| 07-04 | Reply в чате | `2026-07-04-chat-reply-design.md` | `2026-07-04-chat-reply.md` ✅ |
+| 07-04 | Файловый сервис (Подсистема II) | `2026-07-04-chat-attachments-design.md` | `2026-07-04-chat-attachments.md` ✅ |
+| **07-05** | **Переезд чата (Подсистема A)** | `2026-07-05-chat-panel-relocation-design.md` | `2026-07-05-chat-panel-relocation.md` ✅ |
+| **07-05** | **Аватарки + ЛК** | `2026-07-05-user-avatars-profile-design.md` | `2026-07-05-user-avatars-profile.md` ✅ |
 
 ---
 
 ## 🚨 Known issues / trade-offs
 
-1. **Code-форматы CRM и kyk не совпадают** → enrich не сработал (0 совпадений по «Подшипник HQ…+ KYK» vs «6203 ZZ»). Все 735 зашли как INSERT. Нормализация — отдельная задача.
-2. **GLM free tier** — может падать в 429 (rate limit). Concurrency не гарантирована. При оплате API — `GLM_API_KEY` меняется в `.env`, код не трогать.
-3. **`B2B_ADMIN_TOKEN` дефолт** в `auth_deps.py` — `hhb_b2b_secret_token_2026`. На проде env может быть не задан → работает дефолт (публичен в коде). Стоит прописать свой.
-4. **`sku_catalog` не дропнута** — proposal-флоу её не использует, но таблица осталась. Безопасно удалить после проверки.
-5. **SERPAPI_KEY = REPLACE_ME** — не используется в основном флоу.
-6. **db_init duplicate-noise** в api.log (`relation "defects" already exists`) — db_init и миграции работают параллельно; косметика.
-7. **Reports метрики = 0** на чистой БД. После запуска `seed_client_users_and_demo.py` оживают (есть orders со статусом delivered/paid/shipped за последние 6 мес). На проде без сида — по-прежнему 0, пока нет реальных заказов.
-8. **Orders/Machinery/Defects** заполняются сидом (`seed_client_users_and_demo.py`) на dev/demo. Client-юзеры создаются там же и привязываются к компаниям. На проде — заводить через UI Personnel (теперь поддерживает роль `client` + выбор компании).
-9. **Reports `period` не валидируется** — неизвестное значение молча fallback на month. Можно добавить 400.
-10. **Demo client-пароли фиксированы** (`agroeco2026` и т.д.) — только dev/demo. Перед любым проду-использованием ротация обязательна.
-11. **⚠️ Чат: 4 uvicorn-воркера ломают real-time fan-out.** Прод крутит `--workers 4`, а `CONNECTIONS` реестр in-memory (per-worker). Сообщение дойдёт real-time только юзерам на **том же воркере**; остальные увидят его при reload истории. Это заложенная в спеку точка расширения — **Redis pub/sub bridge** между воркерами (15 строк в `fanout()`). Без него чат работает, но push не гарантирован мгновенным между всеми.
-12. **WS-обработчик роняет сокет на malformed JSON** — `receive_json` кидает `JSONDecodeError`, ловится в generic `except`, соединение закрывается. Лучше ловить JSON-ошибки внутри цикла и продолжать. Некритично.
-13. **Чат: `unread` key-type** — API возвращает `Record<string, number>`, store хранит `Record<number, number>`; TS пропустил через index-signature subtyping, runtime работает (JS coercion). Можно нормализовать в `loadUnread`.
-14. **Чат: WS-singleton** — `useChatSocket` держит state в замыкании функции, поэтому WS открывается только когда юзер в `/.../chat`. Unread-бейджи вне чат-экрана не обновляются live.
-15. **Чат: index-бандл раздут** — `vue-advanced-chat` подключён в `main.ts` (register), поэтому попал в main chunk (~728KB). Можно вынести в lazy/dynamic import для code-splitting.
-16. **Redis локально отсутствует** (dev-машина) — message-тесты используют stub `allow_message` в fixtures (production-код чист, лимитер протестирован отдельно в `test_chat_redis.py`). На проде Redis есть (auth, PONG).
+> Наследие 07-04 ниже под `<details>`. Новое от 07-05:
+
+1. **⚠️ VAC (vue-advanced-chat) — web-component, не Vue-компонент.** Объектные props (`username-options`, `text-messages`, `styles`, `emoji-data-source`) надо передавать как **JSON-строку** через `JSON.stringify(...)`, иначе Vue сериализует их в HTML-атрибут как `"[object Object]"` → ломает VAC. Числовые/строковые props (`responsive-breakpoint`, `current-user-id`) — безопасны. **Записать в AGENTS.md.**
+2. **⚠️ VAC хранит avatar в `message.avatar` (per-message), не в `users[].avatar` (per-room).** Backend `list_messages` и `send_message` отдают `avatar_url` автора; адаптер `toMessage` добавляет `avatar` в каждое сообщение.
+3. **⚠️ VAC эмитит события с целым message-объектом, не bare id.** `delete-message` → `{message, roomId}`, читать `event.detail[0].message._id`. Аналогично проверять другие event-payload'ы в исходниках, не угадывать.
+4. **Аватары — публичные** через `/api/avatars/{id}` (без auth). Endpoint отдаёт только файлы, привязанные к `users.avatar_file_id`. Приватные документы — через `/api/files/{id}` с owner-check.
+5. **Media rights:** `chown -R crmks:crmks /var/www/crmks/media` (сервис под юзером `crmks`, не www-data).
+6. **Чат-интеграция файлов** (`messages.attachment_id`, drag в чат) — отложена. Базовый файловый сервис готов, нужен отдельный заход.
+7. **Bug C: удаление каналов не работает** — VAC не имеет event `delete-room`, backend не имеет `DELETE /api/chat/channels`. Это **новая фича** (архивация каналов), не баг. Нужен UI в room-info панели + backend endpoint.
+8. **`test_chat_messages.py` фикстура `seeded_msgs`** создаёт users с `avatar_file_id` (добавлено после regression от list_messages SELECT). Если ещё раз расширять SELECT — обновлять фикстуру.
+9. **`/var/log/crmks/api.log`** — логи приложения на проде. НЕ journalctl (туда идёт только lifecycle systemd).
+
+<details>
+<summary>Наследие 07-04 (10 + 6 пунктов)</summary>
+
+10. **Code-форматы CRM и kyk не совпадают** → enrich не сработал. Нормализация — отдельная задача.
+11. **GLM free tier** — может 429. `GLM_API_KEY` в `.env`.
+12. **`B2B_ADMIN_TOKEN` дефолт** в `auth_deps.py` — публичен в коде, задать свой в env.
+13. **`sku_catalog` не дропнута** — proposal-флоу не использует, безопасно удалить.
+14. **SERPAPI_KEY = REPLACE_ME** — не используется.
+15. **db_init duplicate-noise** в логах — косметика.
+16. **Reports метрики = 0** на чистой БД; оживают после сида.
+17. **Reports `period` не валидируется** — fallback на month.
+18. **Demo client-пароли фиксированы** — ротация перед продом.
+19. **⚠️ Чат: 4 uvicorn-воркера ломают real-time fan-out** — in-memory `CONNECTIONS` per-worker. Redis pub/sub bridge в `fanout()` (15 строк) — точка расширения.
+20. **WS-обработчик роняет сокет на malformed JSON** — ловить внутри цикла.
+21. **Чат: `unread` key-type** — `Record<string, number>` vs `Record<number, number>`, нормализовать.
+22. **Чат: WS-singleton** — WS только когда юзер в чате, unread-бейджи вне чата не live.
+23. **Чат: index-бандл раздут** — `vue-advanced-chat` в main chunk (~728KB), можно code-split.
+24. **Redis локально отсутствует** — message-тесты stub'ают `allow_message`.
+25. **⚠️ Пре-существующий баг миграции 004** (orphaned `proposal_items.sku_id`) — `apply_all` падает на дев-БД. Не чинили (scope discipline). Отдельная задача.
+</details>
 
 ---
 
 ## 📋 Что осталось (в порядке приоритета)
 
-> ✅ Пункты «Привязать client_id»/«Заполнить данные» (Group C) и **«Чат сотрудников» (Подсистема I)** выполнены. Список перенумерован.
-
 | # | Задача | Сложность |
 |---|---|---|
-| 1 | **Чат: Redis pub/sub bridge** между воркерами — иначе real-time push только в пределах одного uvicorn-воркера (прод крутит `--workers 4`). ~15 строк в `fanout()`. | средняя |
-| 2 | **Чат: Подсистема II (вложения)** — загрузка/хранение/раздача файлов, `attachment_id` в messages. Спека будет отдельная. | средняя |
-| 3 | **Чат: Подсистема III (документооборот)** — карточки документов со статусами (черновик→согласование→подписан→архив), версии, привязка к клиенту/КП/заказу. | высокая |
-| 4 | **Нормализация code-маппинга** — обогатить 357 старых KYK характеристиками (парсер артикула из «Подшипник HQ…+ KYK») | средняя |
-| 5 | **Реальный Dashboard** с метриками (волна 2 UI) — сейчас это Workspace, не dashboard | средняя |
-| 6 | **BaseBadge массово** по всем view + добить 4 нативных `confirm()` (`TaskBoard:107`, `NotesGrid:38`, `EventModal:69`, `ParserView:158`) → `useConfirm` | низкая |
-| 7 | **Mobile-адаптив** (бургер-меню sidebar) | средняя |
-| 8 | **DROP sku_catalog** (proposal-флоу не использует, безопасно после проверки) | низкая |
-| 9 | **SERPAPI_KEY** в .env | тривиально |
-| 10 | **B2B_ADMIN_TOKEN** — прописать свой в env (не дефолт) | тривиально |
-| 11 | **Анализ разговоров** (STT + скоринг + извлечение) | высокая |
-| 12 | **RAG по .md** (инженерная база знаний) | средняя |
-| 13 | **Мультитенантность** (Plan 2: tenants + RLS) | высокая |
-| 14 | **Retail/wholesale цены** (миграция) | средняя |
-| 15 | **1С-интеграция** (writer остатков) | высокая |
+| 1 | **Чат: Подсистема B (AI-канал)** — новый канал «AI ассистент», сообщение туда → GLM → ответ как сообщение от AI-юзера. Спеки пока нет. | средняя |
+| 2 | **Чат: Подсистема C (звук + визуал)** — уведомления со звуком при новом сообщении, даже если панель закрыта. | средняя |
+| 3 | **Чат: удаление/архивация каналов (Bug C)** — VAC не имеет event, нужен UI в room-info + `DELETE /api/chat/channels` (или `archived` флаг). | средняя |
+| 4 | **Чат: вложения (Подсистема II интеграция)** — `messages.attachment_id`, drag-загрузка в чат. Базовый файловый сервис готов. | средняя |
+| 5 | **Чат: Redis pub/sub bridge** между воркерами — real-time push на `--workers 4`. ~15 строк в `fanout()`. | средняя |
+| 6 | **Чат: Подсистема III (документооборот)** — статусы, версии, согласования. | высокая |
+| 7 | **Нормализация code-маппинга** — обогатить 357 старых KYK. | средняя |
+| 8 | **Реальный Dashboard** с метриками. | средняя |
+| 9 | **BaseBadge массово** + добить нативные `confirm()` → `useConfirm`. | низкая |
+| 10 | **Mobile-адаптив** (чат-панель 720px на мобиле, бургер-меню). | средняя |
+| 11 | **Полный ЛК** — смена пароля, email, телефон (сейчас только аватар). | средняя |
+| 12 | **DROP sku_catalog** + **SERPAPI_KEY** + **B2B_ADMIN_TOKEN** в env. | тривиально |
+| 13 | **Починить пре-существующий баг миграции 004** (orphaned proposal_items.sku_id, ломает `apply_all` на дев-БД). | низкая |
+| 14 | **Анализ разговоров** (STT + скоринг). | высокая |
+| 15 | **RAG по .md** (инженерная база знаний). | средняя |
+| 16 | **Мультитенантность** (Plan 2: tenants + RLS) — спека от 07-03, Draft. Когда придёт — `files`/`messages` получат `tenant_id`. | высокая |
+| 17 | **Retail/wholesale цены** (миграция). | средняя |
+| 18 | **1С-интеграция** (writer остатков). | высокая |
 
 ---
 
 ## 🧭 Как войти в курс
 
-- **«чат real-time между воркерами»** → Redis pub/sub bridge в `fanout()` (прод крутит `--workers 4`, сейчас push только в пределах одного воркера)
-- **«чат вложения»** → Подсистема II (спека будет отдельная)
-- **«чат документооборот»** → Подсистема III (статусы/версии/согласования)
-- **«запусти сид»** → `cd backend && python -m scripts.seed_client_users_and_demo` (client-юзеры + demo orders/machinery/defects)
-- **«давай dashboard»** → реальный экран с KPI (волна 2 UI)
-- **«давай мультитенантность»** → writing-plans для Plan 2 (спека в `docs/superpowers/specs/2026-07-03-multitenancy-and-scalability-design.md`)
-- **«нормализация code»** → обогащение 357 KYK
-- **«поговорим про AI»** → анализ разговоров (STT+скоринг), RAG по инженерной базе — обсуждали как следующий большой трек
-- или любую другую точку из списка
+- **«чат AI»** → Подсистема B: AI как канал в существующем ChatPanel. Спеки нет, начать с brainstorming.
+- **«звук в чат»** → Подсистема C: WS push + звук + toast при новом сообщении.
+- **«удаление каналов»** → Bug C: новый UI + `DELETE /api/chat/channels` или `archived` флаг.
+- **«чат вложения»** → Подсистема II интеграция: `messages.attachment_id` (колонка уже в спеке файлового сервиса), drag в чат через VAC `@upload-file`.
+- **«real-time между воркерами»** → Redis pub/sub bridge в `fanout()` (`backend/services/chat_connections.py`).
+- **«аватарки»** → готовы; полный ЛК (пароль/email) — пункт 11.
+- **«запусти сид»** → `cd backend && python -m scripts.seed_client_users_and_demo`.
+- **«давай мультитенантность»** → writing-plans для Plan 2 (спека от 07-03, Draft).
 
-Все коммиты на main (`e5b8d9e`), тесты **154/154** зелёные, прод **https://crmdot.ru** живой (чат задеплоен, `/ws/` nginx location настроен).
+Все коммиты на main (`c4fc507`), тесты **180/180** backend + **15** frontend зелёные, прод **https://crmdot.ru** живой.
 
 ---
 
-## 📂 Полезные пути (чат + общий)
+## 📂 Полезные пути
 
-- **Спеки:** `docs/superpowers/specs/` — `2026-07-03-multitenancy-and-scalability-design.md`, `2026-07-04-chat-messaging-design.md` (чат I)
-- **Планы:** `docs/superpowers/plans/` — `2026-07-04-chat-messaging.md` (16 TDD-задач, исполнено)
-- **Чат-бэк:** `backend/services/chat_{service,connections,redis}.py`, `backend/routes/chat{,_ws}.py`, `backend/migrations/009_chat.sql`
-- **Чат-фронт:** `src/composables/{useChatSocket,useChatAdapter}.ts`, `src/views/ChatView.vue`, `src/components/chat/`, `src/stores/chat.ts`
-- **Backup БД (перед миграцией 009):** `/root/crmks_backup_20260704_175917.sql.gz` на проде
+- **Спеки/планы:** `docs/superpowers/{specs,plans}/` (таблица выше).
+- **Чат-бэк:** `backend/services/chat_{service,connections,redis}.py`, `backend/routes/chat{,_ws}.py`, `backend/migrations/009_chat.sql`.
+- **Чат-фронт:** `src/components/chat/ChatPanel.vue` (бывший ChatView, перенесён в правую панель), `src/composables/{useChatSocket,useChatAdapter}.ts`, `src/stores/chat.ts`.
+- **Файловый сервис:** `backend/services/file_service.py`, `backend/routes/files.py`, `backend/migrations/010_files.sql`.
+- **Аватарки:** `backend/routes/index.py` (`_avatar_url`, `PATCH /api/users/me/avatar`, `GET /api/avatars/{id}`), `src/components/ui/Avatar.vue`, `src/views/ProfileView.vue`.
+- **Лейаут:** `src/layouts/WorkspaceLayout.vue` (чат-панель + FAB «Чат»), `src/components/sidebar/AppSidebar.vue` (аватар + ссылка Профиль).
+- **Backups БД на проде:** `/root/crmks_backup_*.sql.gz` (перед каждой миграцией).
 
 ### ⚠️ nginx для WebSocket (прод) — `/ws/` location
 
-Уже настроен в `/etc/nginx/sites-enabled/crmks` (между `/api/` и `/kp/`). Если пересоздавать конфиг — обязательно сохранить upgrade-хедеры, иначе WS за прокси не поднимется:
+В `/etc/nginx/sites-enabled/crmks`. Если пересоздавать конфиг — сохранить upgrade-хедеры:
 ```nginx
 location /ws/ {
     proxy_pass http://127.0.0.1:8000;
@@ -214,3 +209,15 @@ location /ws/ {
 }
 ```
 
+### ⚠️ Деплой-чеклист (накопленные уроки)
+
+- Перед **миграцией** — backup: `sudo -u postgres pg_dump hhb_b2b | gzip > /root/crmks_backup_$(date +%Y%m%d_%H%M%S).sql.gz` (БД называется **`hhb_b2b`**, не `crmks`).
+- `git pull` на проде может упасть на `package-lock.json` (расходится после npm install) — `git checkout -- package-lock.json` перед pull.
+- Backend рестарт применяет миграции автоматически (`apply_all` в lifespan). После restart подождать ~5s (воркеры поднимаются).
+- Логи: `tail -50 /var/log/crmks/api.log` (НЕ journalctl).
+- Media rights: `chown -R crmks:crmks /var/www/crmks/media`.
+- Smoke: `GET /` → 200, `GET /api/auth/me` без auth → 401, `GET /api/avatars/{id}` без auth → 200 (публичный).
+
+---
+
+*Поддерживается с любовью. 💕 Канарейка (`AGENTS.md`) на посту — личность девушки-программиста как анти-галлюцинационный сигнал + факты проекта + правила работы.*
