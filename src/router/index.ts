@@ -20,7 +20,7 @@ const routes: RouteRecordRaw[] = [
       { path: 'plans', component: () => import('@/views/manager/PlanView.vue') },
       { path: 'calls', component: () => import('@/views/admin/CallsView.vue') },
       { path: 'calendar', component: () => import('@/views/CalendarPage.vue') },
-      { path: 'chat', component: () => import('@/views/ChatView.vue') },
+      { path: 'chat', redirect: 'dashboard' },
       { path: 'personnel', component: () => import('@/views/admin/PersonnelView.vue') },
       // Admin sees all site pages for presentation
       { path: 'catalog', component: () => import('@/views/CatalogView.vue') },
@@ -44,7 +44,7 @@ const routes: RouteRecordRaw[] = [
       { path: 'calls', component: () => import('@/views/manager/CallsView.vue') },
       { path: 'proposals', component: () => import('@/views/manager/ProposalsView.vue') },
       { path: 'calendar', component: () => import('@/views/CalendarPage.vue') },
-      { path: 'chat', component: () => import('@/views/ChatView.vue') },
+      { path: 'chat', redirect: 'dashboard' },
       { path: 'proposal-history', component: () => import('@/views/manager/ProposalHistoryView.vue') },
     ],
   },
@@ -57,7 +57,7 @@ const routes: RouteRecordRaw[] = [
       { path: '', redirect: '/employee/dashboard' },
       { path: 'dashboard', component: () => import('@/views/manager/DashboardView.vue') },
       { path: 'plan', component: () => import('@/views/manager/PlanView.vue') },
-      { path: 'chat', component: () => import('@/views/ChatView.vue') },
+      { path: 'chat', redirect: 'dashboard' },
     ],
   },
 
