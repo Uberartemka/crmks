@@ -115,7 +115,7 @@ async function onChannelCreated() {
 </script>
 
 <template>
-  <aside class="chat-pattern-bg flex flex-col h-full bg-slate-50 border-l border-slate-200 shadow-[-12px_0_40px_-12px_rgba(0,0,0,0.25)] shrink-0 w-[720px]">
+  <aside class="flex flex-col h-full bg-slate-50 border-l border-slate-200 shadow-[-12px_0_40px_-12px_rgba(0,0,0,0.25)] shrink-0 w-[720px]">
     <header class="flex items-center justify-between px-3 py-2 border-b border-slate-200 bg-white">
       <h3 class="font-semibold text-sm">Чат команды</h3>
       <button
