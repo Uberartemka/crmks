@@ -5,18 +5,40 @@ import { useAuthStore } from '@/stores/auth'
 import {
   LayoutDashboard, ListChecks, Users, FileText, LogOut,
   BarChart3, Search, Briefcase, Phone, PersonStanding, ShoppingCart,
-  Calculator, Cog, ClipboardList, History, Send, CalendarDays
+  Calculator, Cog, ClipboardList, History, Send, CalendarDays, MessagesSquare
 } from 'lucide-vue-next'
 import Avatar from '@/components/ui/Avatar.vue'
+import { useChatPanel } from '@/composables/useChatPanel'
 
 const auth = useAuthStore()
 const router = useRouter()
+const { isOpen: chatOpen, open: openChat, close: closeChat } = useChatPanel()
 
-const menu = computed(() => {
+interface MenuItem {
+  to?: string // если задано — рендерится как <RouterLink>
+  label: string
+  icon: any
+  action?: () => void // если задано — рендерится как <button> (например, открыть панель чата)
+  active?: () => boolean // для action-элементов: подсветка
+}
+
+const menu = computed<MenuItem[]>(() => {
   const base = `/${auth.role}`
-  const common = [{ to: `${base}/dashboard`, label: 'Воркспейс', icon: LayoutDashboard }]
+  // Воркспейс — для всех ролей (включая client).
+  const common: MenuItem[] = [{ to: `${base}/dashboard`, label: 'Воркспейс', icon: LayoutDashboard }]
+  // Чат — только для staff (clients не видят чат). Ставим сразу после Воркспейса.
+  // Это action-кнопка (открывает slide-out панель), а не роут — поэтому .action, без .to.
+  const commonStaff: MenuItem[] = [
+    { to: `${base}/dashboard`, label: 'Воркспейс', icon: LayoutDashboard },
+    {
+      label: 'Чат',
+      icon: MessagesSquare,
+      action: () => (chatOpen.value ? closeChat() : openChat()),
+      active: () => chatOpen.value,
+    },
+  ]
   if (auth.role === 'admin') return [
-    ...common,
+    ...commonStaff,
     { to: `${base}/proposals`, label: 'Умное КП', icon: FileText },
     { to: `${base}/reports`, label: 'Отчеты', icon: BarChart3 },
     { to: `${base}/parser`, label: 'Парсер лидов', icon: Search },
@@ -34,7 +56,7 @@ const menu = computed(() => {
     { to: `${base}/defects`, label: 'Дефектовка', icon: ClipboardList },
   ]
   if (auth.role === 'manager') return [
-    ...common,
+    ...commonStaff,
     { to: `${base}/plan`, label: 'Мой план', icon: ListChecks },
     { to: `${base}/leads`, label: 'Мои лиды', icon: Users },
     { to: `${base}/calls`, label: 'Звонки', icon: Phone },
@@ -44,7 +66,7 @@ const menu = computed(() => {
   ]
 
   if (auth.role === 'employee') return [
-    ...common,
+    ...commonStaff,
     { to: `${base}/plan`, label: 'Мой план', icon: ListChecks },
   ]
 
@@ -67,14 +89,29 @@ const menu = computed(() => {
     </div>
 
     <nav class="flex-1 p-2 space-y-0.5">
-      <RouterLink
-        v-for="item in menu" :key="item.to" :to="item.to"
-        class="flex items-center gap-2 px-3 py-2 rounded-md text-sm text-slate-700 hover:bg-slate-100"
-        active-class="!bg-brand-50 !text-brand-700 font-medium"
-      >
-        <component :is="item.icon" :size="16" />
-        {{ item.label }}
-      </RouterLink>
+      <template v-for="item in menu" :key="item.label">
+        <!-- Action-кнопка (например, открыть чат-панель) -->
+        <button
+          v-if="item.action"
+          type="button"
+          class="w-full flex items-center gap-2 px-3 py-2 rounded-md text-sm text-slate-700 hover:bg-slate-100 transition-colors"
+          :class="{ '!bg-brand-50 !text-brand-700 font-medium': item.active?.() }"
+          @click="item.action"
+        >
+          <component :is="item.icon" :size="16" />
+          {{ item.label }}
+        </button>
+        <!-- Обычный роут-линк -->
+        <RouterLink
+          v-else
+          :to="item.to!"
+          class="flex items-center gap-2 px-3 py-2 rounded-md text-sm text-slate-700 hover:bg-slate-100"
+          active-class="!bg-brand-50 !text-brand-700 font-medium"
+        >
+          <component :is="item.icon" :size="16" />
+          {{ item.label }}
+        </RouterLink>
+      </template>
     </nav>
 
     <div class="p-2 border-t border-slate-200">
