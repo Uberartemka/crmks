@@ -6,7 +6,7 @@ export interface Channel {
   type: ChannelType
   department_role?: string | null
   archived?: boolean
-  members?: { id: number; username: string; name: string }[]
+  members?: { id: number; username: string; name: string; avatar_url?: string | null; avatar_file_id?: number | null }[]
 }
 
 export interface ChatMessage {

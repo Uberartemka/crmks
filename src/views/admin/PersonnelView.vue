@@ -4,6 +4,7 @@ import { useUsersStore } from '@/stores/users'
 import { useClientsStore } from '@/stores/clients'
 import { toast } from '@/plugins/toast'
 import BaseButton from '@/components/ui/BaseButton.vue'
+import Avatar from '@/components/ui/Avatar.vue'
 import { Plus, X } from 'lucide-vue-next'
 
 const store = useUsersStore()
@@ -76,6 +77,7 @@ async function save() {
       <table class="w-full text-sm">
         <thead class="bg-slate-50 text-neutral-500 text-[10px] uppercase font-bold">
           <tr>
+            <th class="px-4 py-3"></th>
             <th class="px-4 py-3 text-left">ФИО</th>
             <th class="px-4 py-3 text-left">Должность</th>
             <th class="px-4 py-3 text-left">Логин</th>
@@ -85,6 +87,9 @@ async function save() {
         </thead>
         <tbody class="divide-y divide-slate-100">
           <tr v-for="e in store.list" :key="e.id" class="hover:bg-slate-50 transition">
+            <td class="px-3 py-2">
+              <Avatar :name="e.name" :src="e.avatar_url" :size="32" />
+            </td>
             <td class="px-4 py-3 font-bold text-neutral-900">{{ e.name }}</td>
             <td class="px-4 py-3 text-xs">{{ ROLE_LABELS[e.role] ?? e.role }}</td>
             <td class="px-4 py-3 text-xs text-neutral-500">{{ e.username }}</td>

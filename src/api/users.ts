@@ -7,6 +7,8 @@ export interface UserOut {
   role: string
   client_id?: number | null
   client_name?: string | null
+  avatar_url?: string | null
+  avatar_file_id?: number | null
 }
 
 export const usersApi = {

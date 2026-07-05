@@ -7,6 +7,7 @@ import {
   BarChart3, Search, Briefcase, Phone, PersonStanding, ShoppingCart,
   Calculator, Cog, ClipboardList, History, Send, CalendarDays
 } from 'lucide-vue-next'
+import Avatar from '@/components/ui/Avatar.vue'
 
 const auth = useAuthStore()
 const router = useRouter()
@@ -77,7 +78,13 @@ const menu = computed(() => {
     </nav>
 
     <div class="p-2 border-t border-slate-200">
-      <div class="px-3 py-1 text-xs text-slate-500 truncate">{{ auth.user?.username }}</div>
+      <RouterLink to="/profile" class="flex items-center gap-2 px-2 py-2 rounded-md hover:bg-slate-100">
+        <Avatar :name="auth.user?.name ?? '?'" :src="auth.avatarUrl" :size="32" class="shrink-0" />
+        <div class="min-w-0 flex-1">
+          <div class="text-xs font-medium truncate">{{ auth.user?.username }}</div>
+          <div class="text-xs text-slate-500">Профиль</div>
+        </div>
+      </RouterLink>
       <button class="btn-ghost w-full justify-start text-sm" @click="auth.logout(); router.push('/login')">
         <LogOut :size="14" /> Выйти
       </button>

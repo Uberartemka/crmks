@@ -2,14 +2,14 @@ import type { Channel, ChatMessage } from '@/types/chat'
 
 // Our Channel now has members[] (backend returns it). Add it to the type.
 interface ChannelWithMembers extends Channel {
-  members?: { id: number; username: string; name: string }[]
+  members?: { id: number; username: string; name: string; avatar_url?: string | null; avatar_file_id?: number | null }[]
 }
 
 interface VACRoom {
   roomId: string
   roomName: string
   unreadCount: number
-  users: { _id: string; username: string }[]
+  users: { _id: string; username: string; avatar?: string }[]
 }
 
 interface VACMessage {
@@ -31,7 +31,11 @@ export function toRoom(c: ChannelWithMembers, unread: number): VACRoom {
     roomId: String(c.id),
     roomName: c.name,
     unreadCount: unread,
-    users: (c.members ?? []).map((m) => ({ _id: String(m.id), username: m.name })),
+    users: (c.members ?? []).map((m) => ({
+      _id: String(m.id),
+      username: m.name,
+      avatar: m.avatar_url ?? '',
+    })),
   }
 }
 
