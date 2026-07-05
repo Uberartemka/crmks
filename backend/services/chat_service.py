@@ -135,7 +135,7 @@ def _members_with_names(cur, ctype: str, dept_role: str | None, channel_id: int)
             "username": r[1],
             "name": r[2],
             "avatar_file_id": r[3],
-            "avatar_url": f"/api/files/{r[3]}" if r[3] else None,
+            "avatar_url": f"/api/avatars/{r[3]}" if r[3] else None,
         }
         for r in cur.fetchall()
     ]

@@ -22,8 +22,53 @@ router = APIRouter(tags=["index"])
 
 
 def _avatar_url(avatar_file_id: int | None) -> str | None:
-    """Build the download URL for a user's avatar, or None if not set."""
-    return f"/api/files/{avatar_file_id}" if avatar_file_id else None
+    """Build the PUBLIC avatar URL.
+
+    Avatars must be accessible WITHOUT auth, because <img src="..."> and CSS
+    background-image cannot send the Bearer token. So we expose avatars via
+    a separate public endpoint /api/avatars/{file_id} that does not check
+    Authorization. Privacy of avatars (a staff member's face) is acceptable
+    to expose this way; sensitive documents stay behind /api/files/{id}
+    with the auth check.
+    """
+    return f"/api/avatars/{avatar_file_id}" if avatar_file_id else None
+
+
+@router.get("/api/avatars/{file_id}")
+def public_avatar(file_id: int):
+    """Public avatar delivery — NO auth.
+
+    <img src> and CSS background-image cannot send Authorization headers, so
+    avatars (and only avatars) are served via this public path. The id is a
+    non-secret BIGSERIAL; the content is a face photo, not confidential.
+    Other files stay private via /api/files/{id} with owner-check.
+    """
+    import os
+    from fastapi.responses import FileResponse
+
+    conn = get_db()
+    try:
+        cur = conn.cursor()
+        # Only serve files actually used as someone's avatar (so this endpoint
+        # can't be abused to fetch arbitrary private files by id).
+        cur.execute(
+            q("""SELECT storage_path, mime_type FROM files
+                 WHERE id = %s AND EXISTS (
+                     SELECT 1 FROM users WHERE avatar_file_id = files.id
+                 )"""),
+            (file_id,),
+        )
+        row = cur.fetchone()
+    finally:
+        conn.close()
+
+    if not row:
+        raise HTTPException(status_code=404, detail="Аватар не найден")
+
+    abs_path = os.path.join(os.getenv("MEDIA_ROOT", "/var/www/crmks/media"), row[0])
+    if not os.path.exists(abs_path):
+        raise HTTPException(status_code=404, detail="Файл аватара отсутствует на диске")
+    return FileResponse(abs_path, media_type=row[1])
 
 
 def get_current_user_dep(request: Request) -> dict:

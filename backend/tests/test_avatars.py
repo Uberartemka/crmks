@@ -55,7 +55,7 @@ def seeded_avatars(db_conn, monkeypatch):
 
 
 def test_avatar_url_helper():
-    assert _avatar_url(1) == "/api/files/1"
+    assert _avatar_url(1) == "/api/avatars/1"
     assert _avatar_url(None) is None
 
 
@@ -63,7 +63,7 @@ def test_me_returns_avatar_url_when_set(seeded_avatars):
     from routes.index import me
     out = me(current_user={"id": 1, "username": "alice", "name": "Алиса", "role": "manager", "client_id": None, "avatar_file_id": 1})
     assert out["avatar_file_id"] == 1
-    assert out["avatar_url"] == "/api/files/1"
+    assert out["avatar_url"] == "/api/avatars/1"
 
 
 def test_me_avatar_url_null_when_no_avatar(seeded_avatars):
@@ -81,7 +81,7 @@ def test_update_my_avatar_sets_file_id(seeded_avatars):
     )
     assert out["ok"] is True
     assert out["avatar_file_id"] == 1
-    assert out["avatar_url"] == "/api/files/1"
+    assert out["avatar_url"] == "/api/avatars/1"
     # DB updated
     conn = psycopg2.connect(os.environ.get("TEST_DATABASE_URL", "postgresql://postgres:235813@localhost:5432/hhb_b2b_test"))
     cur = conn.cursor()
@@ -124,5 +124,5 @@ def test_chat_channels_members_include_avatar_url(seeded_avatars):
     result = _run(svc.list_channels(current_user={"id": 1, "role": "manager"}))
     ch = result[0]
     member = next(m for m in ch["members"] if m["id"] == 1)
-    assert member["avatar_url"] == "/api/files/1"
+    assert member["avatar_url"] == "/api/avatars/1"
     assert member["avatar_file_id"] == 1
