@@ -24,6 +24,13 @@ interface VACMessage {
   seen: boolean
   // pass-through for reply support
   replyMessage?: { _id: string; content: string; senderId: string } | null
+  file?: {
+    name: string
+    size: number
+    type: string
+    url: string
+    previewUrl?: string
+  }
 }
 
 export function toRoom(c: ChannelWithMembers, unread: number): VACRoom {
@@ -67,5 +74,16 @@ export function toMessage(
           username: m.reply_message.author_name ?? 'Неизвестно',
         }
       : null,
+    file: m.attachment
+      ? {
+          name: m.attachment.original_name,
+          size: m.attachment.size_bytes,
+          type: m.attachment.mime_type,
+          url: m.attachment.url,
+          ...(m.attachment.is_image && m.attachment.thumbnail_url
+            ? { previewUrl: m.attachment.thumbnail_url }
+            : {}),
+        }
+      : undefined,
   }
 }

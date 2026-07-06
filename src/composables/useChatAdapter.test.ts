@@ -37,4 +37,67 @@ describe('toMessage', () => {
     } as any)
     expect(result.replyMessage).toBeNull()
   })
+
+  it('maps attachment to a VAC file with previewUrl for images', () => {
+    const result = toMessage({
+      id: 1,
+      channel_id: 1,
+      author_id: 2,
+      content: 'see photo',
+      attachment: {
+        id: 9,
+        original_name: 'photo.png',
+        mime_type: 'image/png',
+        size_bytes: 1024,
+        is_image: true,
+        url: '/api/chat-attachments/9',
+        thumbnail_url: '/api/chat-attachments/9/thumbnail',
+      },
+      created_at: null,
+    } as any)
+    expect(result.file).toEqual({
+      name: 'photo.png',
+      size: 1024,
+      type: 'image/png',
+      url: '/api/chat-attachments/9',
+      previewUrl: '/api/chat-attachments/9/thumbnail',
+    })
+  })
+
+  it('maps attachment to a VAC file without previewUrl for documents', () => {
+    const result = toMessage({
+      id: 1,
+      channel_id: 1,
+      author_id: 2,
+      content: 'see pdf',
+      attachment: {
+        id: 10,
+        original_name: 'Договор.pdf',
+        mime_type: 'application/pdf',
+        size_bytes: 9999,
+        is_image: false,
+        url: '/api/chat-attachments/10',
+        thumbnail_url: null,
+      },
+      created_at: null,
+    } as any)
+    expect(result.file).toEqual({
+      name: 'Договор.pdf',
+      size: 9999,
+      type: 'application/pdf',
+      url: '/api/chat-attachments/10',
+    })
+    expect(result.file).not.toHaveProperty('previewUrl')
+  })
+
+  it('omits file when there is no attachment', () => {
+    const result = toMessage({
+      id: 1,
+      channel_id: 1,
+      author_id: 2,
+      content: 'plain',
+      created_at: null,
+    } as any)
+    expect(result.file).toBeUndefined()
+  })
 })

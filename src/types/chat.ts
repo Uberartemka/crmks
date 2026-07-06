@@ -9,6 +9,16 @@ export interface Channel {
   members?: { id: number; username: string; name: string; avatar_url?: string | null; avatar_file_id?: number | null }[]
 }
 
+export interface ChatAttachment {
+  id: number
+  original_name: string
+  mime_type: string
+  size_bytes: number
+  is_image: boolean
+  url: string // "/api/chat-attachments/{id}" — public, no auth
+  thumbnail_url: string | null
+}
+
 export interface ChatMessage {
   id: number
   channel_id: number
@@ -21,6 +31,7 @@ export interface ChatMessage {
     author_id: number | null
     author_name: string | null
   } | null
+  attachment?: ChatAttachment | null
   created_at: string | null
   edited_at?: string | null
   deleted_at?: string | null
