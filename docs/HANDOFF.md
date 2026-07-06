@@ -1,16 +1,16 @@
-# 🎀 Хэндофф сессий 2026-07-04 → 2026-07-05
+# 🎀 Хэндофф сессий 2026-07-04 → 2026-07-07
 
-> Точка возобновления. За две сессии: 8 крупных задач + Group C + **чат сотрудников (Подсистема I)** + **reply** + **универсальный файловый сервис (Подсистема II)** + **переезд чата в правую панель** + **аватарки пользователей + минимальный ЛК**.
+> Точка возобновления. За три сессии: 8 крупных задач + Group C + **чат сотрудников (Подсистема I)** + **reply** + **универсальный файловый сервис (Подсистема II)** + **переезд чата в правую панель** + **аватарки пользователей + минимальный ЛК** + **вложения в чат (Подсистема II интеграция)**.
 
 ## 📍 Проект
 
 **frontcrm** — CRM для индустриальных дистрибьюторов подшипников. Vue 3 + FastAPI + PostgreSQL.
 
-- **Репо:** [github.com/Uberartemka/crmks](https://github.com/Uberartemka/crmks) (ветка `main`, HEAD `c4fc507`)
+- **Репо:** [github.com/Uberartemka/crmks](https://github.com/Uberartemka/crmks) (ветка `main`, HEAD `f4364df`)
 - **Локальный путь:** `D:\Projects\frontcrm`
 - **Прод:** **https://crmdot.ru** (домен + SSL Let's Encrypt, до 2026-10-02, авто-renew)
-- **Тесты backend:** **180/180** (`cd backend && python -m pytest`) — было 154
-- **Тесты frontend:** **15** (`npm run test` — vitest: useConfirm, useChatSocket, useChatAdapter, filesApi, ChatPanel, Avatar)
+- **Тесты backend:** **195/195** (`cd backend && python -m pytest`) — было 180 (07-05) / 154 (07-04)
+- **Тесты frontend:** **20** (`npm run test` — vitest: useConfirm, useChatSocket, useChatAdapter, filesApi, ChatPanel, Avatar)
 - **Серверы:** CRM `72.56.246.21` (herodot), сайты `193.164.149.3`. Ключ `~/.ssh/kyk_server_key`.
 - **Логи приложения (прод):** `/var/log/crmks/api.log` (НЕ journalctl — service unit пишет stdout/stderr туда). Это важно для дебага боевых багов.
 
@@ -91,6 +91,28 @@
 
 ---
 
+## ✅ Что сделано за сессию 2026-07-07
+
+### 16. 📎 Вложения в чат (Подсистема II — интеграция)
+- Спека `docs/superpowers/specs/2026-07-07-chat-attachments-integration-design.md` + план `docs/superpowers/plans/2026-07-07-chat-attachments-integration.md` (8 TDD-задач, subagent-driven).
+- **Backend (миграция 012 `messages.attachment_id`):**
+  - `messages.attachment_id BIGINT NULL REFERENCES files(id) ON DELETE SET NULL` + partial index. Идемпотентная через `ADD COLUMN IF NOT EXISTS` (PG 9.6+) — нативная, проще `DO $$`.
+  - `send_message`: валидирует attachment_id (owner-check `uploaded_by == user.id`), **graceful drop** при невалидном (зеркало `reply_to_id` — текст не теряется).
+  - `list_messages`: LEFT JOIN files + 6 колонок → `attachment` meta в payload (single query, no N+1).
+  - **Публичный endpoint `GET /api/chat-attachments/{id}` + `/thumbnail` — БЕЗ auth.** Gate: `EXISTS(messages WHERE attachment_id = file.id AND deleted_at IS NULL)` — нельзя abuses для скачивания произвольных приватных файлов. `Content-Disposition` через `urllib.parse.quote()` (response-path header-injection defense — НЕ `sanitize_name`, это upload-path).
+  - +15 backend тестов (вкл. regression на Content-Disposition — mutation-доказан).
+- **Frontend:**
+  - `ChatAttachment` тип + `ChatMessage.attachment`, `toMessage` мапит `attachment` → VAC `message.file` (`previewUrl` только для картинок).
+  - `store`/`api` `sendMessage(..., attachmentId?)`.
+  - `ChatPanel.vue`: `:show-files=true`, `:multiple-files=false`, файлы грузятся **lazy в `onSend`** (см. known issue 26 — VAC 2.1.2 не имеет `@upload-file`).
+  - +5 frontend тестов (вкл. regression на missing-blob — silent corruption guard).
+- **⚠️ Канарейка сработала (важно!):** в плане закладывался eager-upload через VAC `@upload-file` event. Исполнитель grep'нул `node_modules/vue-advanced-chat/dist/` — **этого event'а в VAC 2.1.2 НЕТ.** Файлы приезжают **внутри `send-message`** как `event.detail[0].files` (массив `{blob,name,size,type,extension,localUrl}`, НЕ сырых `File`). Переключились на lazy-upload (юзер одобрил). **Урок: premise плана был неверен, но TDD + канарейка-шаг (grep VAC source ПЕРЕД реализацией) поймали это до продакшна.**
+- **Ревью-находки (2 итерации фиксов в Task 4 + 1 в Task 7):**
+  1. `download_attachment_thumbnail` ре-резолвил `MEDIA_ROOT` через `os.getenv` → fix: сервисный хелпер `get_attachment_thumbnail_path()` читает `MEDIA_ROOT` на момент вызова (Python `from X import Y` биндит на момент импорта, monkeypatch до него не доходит — regression-тест с pre-import доказывает).
+  2. `new File([undefined], name)` молча создаёт 9-байтный файл с содержимым `"undefined"` → silent corruption при missing blob → fix: guard `if (!f?.blob)` + regression-тест.
+
+---
+
 ## 📋 Спеки и планы (оба дня)
 
 Все в `docs/superpowers/specs/` и `docs/superpowers/plans/`:
@@ -106,6 +128,7 @@
 | 07-04 | Файловый сервис (Подсистема II) | `2026-07-04-chat-attachments-design.md` | `2026-07-04-chat-attachments.md` ✅ |
 | **07-05** | **Переезд чата (Подсистема A)** | `2026-07-05-chat-panel-relocation-design.md` | `2026-07-05-chat-panel-relocation.md` ✅ |
 | **07-05** | **Аватарки + ЛК** | `2026-07-05-user-avatars-profile-design.md` | `2026-07-05-user-avatars-profile.md` ✅ |
+| **07-07** | **Вложения в чат (Подсистема II интеграция)** | `2026-07-07-chat-attachments-integration-design.md` | `2026-07-07-chat-attachments-integration.md` ✅ |
 
 ---
 
@@ -118,10 +141,17 @@
 3. **⚠️ VAC эмитит события с целым message-объектом, не bare id.** `delete-message` → `{message, roomId}`, читать `event.detail[0].message._id`. Аналогично проверять другие event-payload'ы в исходниках, не угадывать.
 4. **Аватары — публичные** через `/api/avatars/{id}` (без auth). Endpoint отдаёт только файлы, привязанные к `users.avatar_file_id`. Приватные документы — через `/api/files/{id}` с owner-check.
 5. **Media rights:** `chown -R crmks:crmks /var/www/crmks/media` (сервис под юзером `crmks`, не www-data).
-6. **Чат-интеграция файлов** (`messages.attachment_id`, drag в чат) — отложена. Базовый файловый сервис готов, нужен отдельный заход.
+6. **✅ Чат-интеграция файлов** (`messages.attachment_id`, drag в чат) — **сделана 07-07** (см. секцию 16). Публичный `/api/chat-attachments/{id}` (без auth, gate по EXISTS messages). Orphan-cleanup и UX-индикация загрузки — в «Что осталось» (пункты 18-19).
 7. **Bug C: удаление каналов не работает** — VAC не имеет event `delete-room`, backend не имеет `DELETE /api/chat/channels`. Это **новая фича** (архивация каналов), не баг. Нужен UI в room-info панели + backend endpoint.
-8. **`test_chat_messages.py` фикстура `seeded_msgs`** создаёт users с `avatar_file_id` (добавлено после regression от list_messages SELECT). Если ещё раз расширять SELECT — обновлять фикстуру.
+8. **`test_chat_messages.py` фикстура `seeded_msgs`** создаёт users с `avatar_file_id` + `attachment_id` (расширено 07-07). Если ещё раз расширять SELECT messages — обновлять фикстуру (inline CREATE TABLE хардкодит колонки).
 9. **`/var/log/crmks/api.log`** — логи приложения на проде. НЕ journalctl (туда идёт только lifecycle systemd).
+
+### Новое от 07-07:
+
+25. **⚠️ VAC 2.1.2 НЕ имеет event `@upload-file`.** Файлы приезжают **внутри `send-message`** как `event.detail[0].files` — массив объектов `{blob,name,size,type,extension,localUrl}` (НЕ сырых `File`). Поэтому ChatPanel использует **lazy-upload** (грузит в момент send), не eager + `pendingAttachment`. Перед любым следующим заходом в чат-вложения — grep `node_modules/vue-advanced-chat/dist/` на реальный contract, не угадывать. Апгрейд VAC → eager (пункт 20 «Что осталось»).
+26. **⚠️ `new File([undefined], name)` молча создаёт 9-байтный файл с содержимым `"undefined"`** (не бросает). VAC может доставить file-entry без готового `blob` (большой файл, race). Guard `if (!f?.blob)` в `ChatPanel.uploadAndSend` + regression-тест. Общий урок: VAC-payload может быть partially-populated.
+27. **⚠️ Python `from X import Y` биндит значение на момент импорта.** `monkeypatch.setattr(svc, "MEDIA_ROOT", tmp)` до импортированного имени **не доходит** — ломает тест-наблюдаемость. Решение: читать `MEDIA_ROOT` **в сервисе на момент вызова** (не route-level import). Применено в `get_attachment_thumbnail_path()` (regression-тест с pre-import доказывает).
+28. **Публичный `/api/chat-attachments/{id}`** — без auth, gate по `EXISTS(messages WHERE attachment_id = file.id AND deleted_at IS NULL)`. Id перечислимы (BIGSERIAL) — принятый trade-off (как аватарки). Rate-limit — глобальный in-memory `rate_limiter.py` (60/min, но ключ `(IP, exact_path)` с file_id → энумерация `1,2,3...` не подавляется).
 
 <details>
 <summary>Наследие 07-04 (10 + 6 пунктов)</summary>
@@ -153,21 +183,23 @@
 | 1 | **Чат: Подсистема B (AI-канал)** — новый канал «AI ассистент», сообщение туда → GLM → ответ как сообщение от AI-юзера. Спеки пока нет. | средняя |
 | 2 | **Чат: Подсистема C (звук + визуал)** — уведомления со звуком при новом сообщении, даже если панель закрыта. | средняя |
 | 3 | **Чат: удаление/архивация каналов (Bug C)** — VAC не имеет event, нужен UI в room-info + `DELETE /api/chat/channels` (или `archived` флаг). | средняя |
-| 4 | **Чат: вложения (Подсистема II интеграция)** — `messages.attachment_id`, drag-загрузка в чат. Базовый файловый сервис готов. | средняя |
-| 5 | **Чат: Redis pub/sub bridge** между воркерами — real-time push на `--workers 4`. ~15 строк в `fanout()`. | средняя |
-| 6 | **Чат: Подсистема III (документооборот)** — статусы, версии, согласования. | высокая |
-| 7 | **Нормализация code-маппинга** — обогатить 357 старых KYK. | средняя |
-| 8 | **Реальный Dashboard** с метриками. | средняя |
-| 9 | **BaseBadge массово** + добить нативные `confirm()` → `useConfirm`. | низкая |
-| 10 | **Mobile-адаптив** (чат-панель 720px на мобиле, бургер-меню). | средняя |
-| 11 | **Полный ЛК** — смена пароля, email, телефон (сейчас только аватар). | средняя |
-| 12 | **DROP sku_catalog** + **SERPAPI_KEY** + **B2B_ADMIN_TOKEN** в env. | тривиально |
-| 13 | **Починить пре-существующий баг миграции 004** (orphaned proposal_items.sku_id, ломает `apply_all` на дев-БД). | низкая |
-| 14 | **Анализ разговоров** (STT + скоринг). | высокая |
-| 15 | **RAG по .md** (инженерная база знаний). | средняя |
-| 16 | **Мультитенантность** (Plan 2: tenants + RLS) — спека от 07-03, Draft. Когда придёт — `files`/`messages` получат `tenant_id`. | высокая |
-| 17 | **Retail/wholesale цены** (миграция). | средняя |
-| 18 | **1С-интеграция** (writer остатков). | высокая |
+| 4 | **Чат: Redis pub/sub bridge** между воркерами — real-time push на `--workers 4`. ~15 строк в `fanout()`. | средняя |
+| 5 | **Чат: Подсистема III (документооборот)** — статусы, версии, согласования. | высокая |
+| 6 | **Нормализация code-маппинга** — обогатить 357 старых KYK. | средняя |
+| 7 | **Реальный Dashboard** с метриками. | средняя |
+| 8 | **BaseBadge массово** + добить нативные `confirm()` → `useConfirm`. | низкая |
+| 9 | **Mobile-адаптив** (чат-панель 720px на мобиле, бургер-меню). | средняя |
+| 10 | **Полный ЛК** — смена пароля, email, телефон (сейчас только аватар). | средняя |
+| 11 | **DROP sku_catalog** + **SERPAPI_KEY** + **B2B_ADMIN_TOKEN** в env. | тривиально |
+| 12 | **Починить пре-существующий баг миграции 004** (orphaned proposal_items.sku_id, ломает `apply_all` на дев-БД). | низкая |
+| 13 | **Анализ разговоров** (STT + скоринг). | высокая |
+| 14 | **RAG по .md** (инженерная база знаний). | средняя |
+| 15 | **Мультитенантность** (Plan 2: tenants + RLS) — спека от 07-03, Draft. Когда придёт — `files`/`messages` получат `tenant_id`. | высокая |
+| 16 | **Retail/wholesale цены** (миграция). | средняя |
+| 17 | **1С-интеграция** (writer остатков). | высокая |
+| 18 | **Чат-вложения: cleanup-job для orphan-файлов** — eager/lazy upload создаёт files без отправленного сообщения. Считать `COUNT(messages WHERE attachment_id=file.id)=0`, не `EXISTS`. | низкая |
+| 19 | **Чат-вложения: UX-индикация загрузки** — сейчас send блокируется на upload (lazy), без спиннера/toast. На медленной сети юзер не видит прогресса; при ошибке upload сообщение уходит без вложения молча (только `console.warn`). | низкая |
+| 20 | **Чат-вложения: апгрейд VAC** до версии с `@upload-file` → вернуть eager-upload + `pendingAttachment` (лучшая UX). Сейчас lazy из-за отсутствия event'а в 2.1.2. | средняя |
 
 ---
 
@@ -176,13 +208,13 @@
 - **«чат AI»** → Подсистема B: AI как канал в существующем ChatPanel. Спеки нет, начать с brainstorming.
 - **«звук в чат»** → Подсистема C: WS push + звук + toast при новом сообщении.
 - **«удаление каналов»** → Bug C: новый UI + `DELETE /api/chat/channels` или `archived` флаг.
-- **«чат вложения»** → Подсистема II интеграция: `messages.attachment_id` (колонка уже в спеке файлового сервиса), drag в чат через VAC `@upload-file`.
+- **«чат вложения»** → **готово (07-07)**. Drag/скрепка в ChatPanel → lazy upload → `attachment_id`. Публичный `/api/chat-attachments/{id}`. См. known issue 25 (VAC 2.1.2 без `@upload-file` → lazy, не eager). UX-индикация + cleanup-job — пункты 18-19.
 - **«real-time между воркерами»** → Redis pub/sub bridge в `fanout()` (`backend/services/chat_connections.py`).
 - **«аватарки»** → готовы; полный ЛК (пароль/email) — пункт 11.
 - **«запусти сид»** → `cd backend && python -m scripts.seed_client_users_and_demo`.
 - **«давай мультитенантность»** → writing-plans для Plan 2 (спека от 07-03, Draft).
 
-Все коммиты на main (`c4fc507`), тесты **180/180** backend + **15** frontend зелёные, прод **https://crmdot.ru** живой.
+Все коммиты на main (`f4364df`), тесты **195/195** backend + **20** frontend зелёные, прод **https://crmdot.ru** живой.
 
 ---
 
