@@ -4,6 +4,7 @@ import { useChatStore } from '@/stores/chat'
 import { useAuthStore } from '@/stores/auth'
 import { useChatSocket } from '@/composables/useChatSocket'
 import { chatApi } from '@/api/chat'
+import { filesApi } from '@/api/files'
 import { toRoom, toMessage } from '@/composables/useChatAdapter'
 import CreateChannelModal from '@/components/chat/CreateChannelModal.vue'
 import { X } from 'lucide-vue-next'
@@ -84,11 +85,43 @@ onMounted(async () => {
   setTimeout(injectTextareaStyle, 100)
 })
 
+// ВАЖНО (VAC canary): в vue-advanced-chat 2.1.2 НЕТ события @upload-file.
+// Файлы приходят ВНУТРИ send-message как detail[0].files — массив объектов
+// {blob,name,size,type,extension,localUrl} (НЕ сырых File). onSend грузит
+// первый файл через filesApi.upload (восстанавливая File из blob+name+type)
+// и передаёт полученный id как attachment_id. Один файл на сообщение
+// (см. :multiple-files="false" в шаблоне); берём files[0].
 function onSend(event: any) {
-  const { content, roomId, replyMessage } = event.detail[0]
+  const { content, roomId, replyMessage, files } = event.detail[0]
   const replyToId = replyMessage?._id ? Number(replyMessage._id) : undefined
-  store.sendMessage(Number(roomId), content, replyToId)
+  const numRoom = Number(roomId)
+  void uploadAndSend(files, numRoom, content, replyToId)
 }
+
+// Вынесено отдельно: ждём завершения загрузки, затем шлём сообщение.
+// Не добавляем pendingAttachment-стор: eager-upload тут невозможен, т.к.
+// отдельного события выбора файла нет — загрузка идёт в момент отправки.
+async function uploadAndSend(
+  files: any[] | null | undefined,
+  numRoom: number,
+  content: string,
+  replyToId?: number,
+) {
+  let attachmentId: number | undefined
+  if (files?.length) {
+    try {
+      const f = files[0]
+      const file = new File([f.blob], f.name, { type: f.type || f.blob?.type })
+      const { data } = await filesApi.upload(file)
+      attachmentId = data.id
+    } catch (e) {
+      console.warn('attachment upload failed', e)
+    }
+  }
+  store.sendMessage(numRoom, content, replyToId, attachmentId)
+}
+
+defineExpose({ onSend })
 
 function onReply(_event: any) {
   // vue-advanced-chat handles the reply UX itself; replyMessage comes back in onSend.
@@ -151,7 +184,8 @@ async function onChannelCreated() {
         :add-room-enabled="canCreate"
         :room-info-enabled="true"
         :show-search="false"
-        :show-files="false"
+        :show-files="true"
+        :multiple-files="false"
         :show-audio="false"
         :textarea-action-enabled="false"
         :username-options="usernameOptions"
