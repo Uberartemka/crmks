@@ -9,6 +9,17 @@ from fastapi.testclient import TestClient
 
 from services.file_service import is_allowed, sanitize_name, save_upload, get_file
 
+# Pre-import routes.files at module collection time (before any fixture runs) so
+# its import-bound `MEDIA_ROOT` (`from services.file_service import MEDIA_ROOT`)
+# captures the REAL un-patched media dir. This makes the stale-binding bug in
+# download_attachment_thumbnail observable to the regression test below: under
+# the buggy code, monkeypatch.setattr(svc, 'MEDIA_ROOT', tmp) cannot reach the
+# already-bound route-module name, so the route would read the real media dir
+# (where the test thumbnail doesn't exist) and 404. Without this pre-import, the
+# first _files_app() call would import routes.files AFTER the fixture patched
+# svc.MEDIA_ROOT, so the binding would capture the tmpdir and mask the bug.
+import routes.files  # noqa: E402,F401
+
 
 def _run(coro):
     return asyncio.run(coro)
@@ -391,3 +402,59 @@ def test_public_attachment_content_disposition_safe(seeded_files, monkeypatch):
     cd = resp.headers.get("content-disposition", "")
     assert '"' not in cd, f"raw quote leaked into Content-Disposition: {cd!r}"
     assert "\r" not in cd and "\n" not in cd, f"CR/LF leaked into Content-Disposition: {cd!r}"
+
+
+def test_public_attachment_thumbnail_200_uses_patched_media_root(seeded_files, monkeypatch):
+    """Regression: the thumbnail route must read MEDIA_ROOT at call time (via the
+    service), not via a route-module import binding. Seeds an image file with a
+    thumbnail_path, writes both the physical file AND its thumbnail into the
+    patched tmpdir (seeded_files), attaches to a live message, and asserts 200.
+
+    The gate (get_file_by_attachment) already reads MEDIA_ROOT at call time, so
+    writing pic.png into the tmpdir lets the gate pass under BOTH old and new
+    code. The bug is isolated to the THUMBNAIL path: under the OLD import-bound
+    MEDIA_ROOT the route would look for the thumbnail in the real media dir
+    (where it doesn't exist) and 404; under the NEW service-call-time MEDIA_ROOT
+    it finds the thumbnail in the patched tmpdir and returns 200.
+
+    NOTE on the pre-import below: `from X import NAME` binds NAME in the route
+    module at import time. For the stale-binding bug to be observable, routes.files
+    must be imported BEFORE the fixture patches svc.MEDIA_ROOT — otherwise the
+    binding captures the patched tmpdir value and the bug is masked. We import it at
+    the top of the test session (module scope) so the binding holds the real media
+    dir; monkeypatch.setattr(svc, 'MEDIA_ROOT', tmp) later cannot reach it.
+    """
+    import psycopg2, os
+    TEST_DSN = os.environ.get("TEST_DATABASE_URL", "postgresql://postgres:235813@localhost:5432/hhb_b2b_test")
+    # seed an image file WITH a thumbnail_path, owned by user 1
+    conn = psycopg2.connect(TEST_DSN)
+    try:
+        cur = conn.cursor()
+        cur.execute("DROP TABLE IF EXISTS messages")
+        cur.execute("CREATE TABLE messages (id BIGSERIAL PRIMARY KEY, attachment_id BIGINT NULL, deleted_at TIMESTAMPTZ NULL)")
+        cur.execute(
+            "INSERT INTO files (uploaded_by, storage_path, thumbnail_path, original_name, "
+            "mime_type, size_bytes, sha256, is_image) VALUES "
+            "(1, '2026/07/pic.png', '2026/07/pic_thumb.jpg', 'pic.png', 'image/png', 500, 'pic-h', true)"
+        )
+        conn.commit()
+        cur.execute("SELECT id FROM files WHERE original_name = 'pic.png' AND is_image = true")
+        img_fid = cur.fetchone()[0]
+        cur.execute("INSERT INTO messages (attachment_id) VALUES (%s)", (img_fid,))
+        conn.commit()
+        cur.close()
+    finally:
+        conn.close()
+    # write BOTH the physical file and its thumbnail into the PATCHED tmpdir
+    # (seeded_files). The gate needs pic.png on disk; the thumbnail route needs
+    # pic_thumb.jpg. Neither exists in the real media dir, so a stale
+    # route-module MEDIA_ROOT binding would 404 on the thumbnail.
+    os.makedirs(os.path.join(seeded_files, "2026/07"), exist_ok=True)
+    with open(os.path.join(seeded_files, "2026/07/pic.png"), "wb") as f:
+        f.write(b"\x89PNG\r\nfake-image-bytes")
+    with open(os.path.join(seeded_files, "2026/07/pic_thumb.jpg"), "wb") as f:
+        f.write(b"\xff\xd8\xff\xe0fake-jpeg-bytes\xff\xd9")
+    client = _files_app(seeded_files, monkeypatch)
+    resp = client.get(f"/api/chat-attachments/{img_fid}/thumbnail")
+    assert resp.status_code == 200, f"expected 200, got {resp.status_code}: {resp.text}"
+    assert resp.headers["content-type"] == "image/jpeg"

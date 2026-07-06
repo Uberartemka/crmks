@@ -1,14 +1,12 @@
 """File upload/download REST endpoints. Thin layer over file_service."""
 from __future__ import annotations
 
-import os
-
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from fastapi.responses import StreamingResponse
 from urllib.parse import quote
 
 from auth_deps import get_current_user as _get_current_user
-from services.file_service import MEDIA_ROOT, save_upload, get_file, get_thumbnail_path, get_file_by_attachment
+from services.file_service import save_upload, get_file, get_thumbnail_path, get_file_by_attachment, get_attachment_thumbnail_path
 
 router = APIRouter(tags=["files"])
 
@@ -118,12 +116,7 @@ def download_attachment(file_id: int) -> StreamingResponse:
 @router.get("/api/chat-attachments/{file_id}/thumbnail")
 def download_attachment_thumbnail(file_id: int) -> StreamingResponse:
     """Public thumbnail — NO auth. 404 if not an image / no thumbnail / not attached."""
-    meta, abs_path = get_file_by_attachment(file_id)
-    if not meta.get("thumbnail_path"):
-        raise HTTPException(404, "Превью недоступно")
-    thumb_abs = os.path.join(MEDIA_ROOT, meta["thumbnail_path"])
-    if not os.path.exists(thumb_abs):
-        raise HTTPException(404, "Превью отсутствует на диске")
+    meta, thumb_abs = get_attachment_thumbnail_path(file_id)
 
     def iterfile():
         with open(thumb_abs, "rb") as f:

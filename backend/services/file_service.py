@@ -293,3 +293,22 @@ def get_file_by_attachment(file_id: int) -> Tuple[Dict[str, Any], str]:
         logger.error(f"[files] attachment {file_id} DB row exists but file missing: {abs_path}")
         raise HTTPException(404, "Файл отсутствует на диске")
     return meta, abs_path
+
+
+def get_attachment_thumbnail_path(file_id: int) -> Tuple[Dict[str, Any], str]:
+    """Attachment-gated thumbnail path (no auth). Returns (meta, thumb_abs_path).
+
+    Reuses get_file_by_attachment for the gate, then enforces the thumbnail
+    exists. thumb_abs is computed HERE (not in the route) so MEDIA_ROOT is read
+    at call time — this lets tests monkeypatch svc.MEDIA_ROOT and have the
+    thumbnail route see the patched value (the route-module `MEDIA_ROOT` import
+    binding is stale under setattr). 404 if not attached / not an image /
+    no thumbnail / thumbnail missing on disk.
+    """
+    meta, _ = get_file_by_attachment(file_id)
+    if not meta.get("thumbnail_path"):
+        raise HTTPException(404, "Превью недоступно")
+    thumb_abs = os.path.join(MEDIA_ROOT, meta["thumbnail_path"])
+    if not os.path.exists(thumb_abs):
+        raise HTTPException(404, "Превью отсутствует на диске")
+    return meta, thumb_abs
