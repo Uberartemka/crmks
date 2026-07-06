@@ -194,6 +194,24 @@ def apply_migration_011(conn) -> None:
     logger.info("[migration] 011_user_avatars.sql applied.")
 
 
+def apply_migration_012(conn) -> None:
+    """Apply migration 012 — chat message attachments (messages.attachment_id → files).
+
+    Idempotent (ADD COLUMN IF NOT EXISTS / CREATE INDEX IF NOT EXISTS). Assumes
+    messages + files tables exist (009/010). ON DELETE SET NULL: file removed →
+    message survives without attachment (matches reply_to_id + avatar_file_id).
+    """
+    sql_path = _MIGRATIONS_DIR / "012_chat_attachments.sql"
+    sql = sql_path.read_text(encoding="utf-8")
+    conn.autocommit = True
+    cur = conn.cursor()
+    try:
+        cur.execute(sql)
+    finally:
+        cur.close()
+    logger.info("[migration] 012_chat_attachments.sql applied.")
+
+
 def apply_all(dsn: str) -> None:
     """Apply all migrations to the DB at `dsn`. Used on app startup."""
     import psycopg2
@@ -211,5 +229,6 @@ def apply_all(dsn: str) -> None:
         apply_migration_009(conn)
         apply_migration_010(conn)
         apply_migration_011(conn)
+        apply_migration_012(conn)
     finally:
         conn.close()
