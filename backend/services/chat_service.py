@@ -272,12 +272,24 @@ async def send_message(
             if cur.fetchone() is None:
                 reply_to_id = None
 
+        attachment_id = data.attachment_id
+        if attachment_id is not None:
+            # Owner-check: sender must have uploaded this file. Graceful drop
+            # on failure (foreign/nonexistent) — mirrors reply_to_id handling;
+            # the user's text is never lost because of a bad attachment id.
+            cur.execute(
+                q("SELECT 1 FROM files WHERE id = %s AND uploaded_by = %s"),
+                (attachment_id, current_user["id"]),
+            )
+            if cur.fetchone() is None:
+                attachment_id = None
+
         cur.execute(
             q(
-                """INSERT INTO messages (channel_id, author_id, content, reply_to_id)
-                   VALUES (%s, %s, %s, %s) RETURNING id, created_at"""
+                """INSERT INTO messages (channel_id, author_id, content, reply_to_id, attachment_id)
+                   VALUES (%s, %s, %s, %s, %s) RETURNING id, created_at"""
             ),
-            (channel_id, current_user["id"], data.content, reply_to_id),
+            (channel_id, current_user["id"], data.content, reply_to_id, attachment_id),
         )
         mid, created_at = cur.fetchone()
         conn.commit()
@@ -303,6 +315,19 @@ async def send_message(
                     "author_name": prow[3],
                 }
 
+        attachment = None
+        if attachment_id is not None:
+            cur.execute(
+                q(
+                    """SELECT id, original_name, mime_type, size_bytes, is_image, thumbnail_path
+                       FROM files WHERE id = %s"""
+                ),
+                (attachment_id,),
+            )
+            frow = cur.fetchone()
+            if frow:
+                attachment = _attachment_dict(frow)
+
         return {
             "id": mid,
             "channel_id": channel_id,
@@ -312,6 +337,7 @@ async def send_message(
             "content": data.content,
             "reply_to_id": reply_to_id,
             "reply_message": reply_message,
+            "attachment": attachment,
             "created_at": created_at.isoformat() if created_at else None,
             "edited_at": None,
             "deleted_at": None,
@@ -365,6 +391,27 @@ async def delete_message(
         return {"id": message_id, "ok": True}
     finally:
         conn.close()
+
+
+def _attachment_dict(frow) -> Dict[str, Any]:
+    """Map a files-row tuple to the client-facing attachment dict.
+
+    frow = (id, original_name, mime_type, size_bytes, is_image, thumbnail_path).
+    URL points at the PUBLIC /api/chat-attachments/{id} endpoint (no auth) so
+    <img src>/CSS background-image can fetch it — same rationale as /api/avatars.
+    """
+    fid = frow[0]
+    is_image = frow[4]
+    thumbnail_path = frow[5]
+    return {
+        "id": fid,
+        "original_name": frow[1],
+        "mime_type": frow[2],
+        "size_bytes": frow[3],
+        "is_image": is_image,
+        "url": f"/api/chat-attachments/{fid}",
+        "thumbnail_url": f"/api/chat-attachments/{fid}/thumbnail" if (is_image and thumbnail_path) else None,
+    }
 
 
 def _message_row_to_dict(r) -> Dict[str, Any]:

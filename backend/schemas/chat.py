@@ -14,6 +14,7 @@ class ChannelCreate(BaseModel):
 class MessageCreate(BaseModel):
     content: str = Field(..., min_length=1, max_length=10000)
     reply_to_id: Optional[int] = None
+    attachment_id: Optional[int] = None
 
 
 class MessageUpdate(BaseModel):
