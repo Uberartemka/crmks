@@ -8,7 +8,7 @@ from fastapi.responses import StreamingResponse
 from urllib.parse import quote
 
 from auth_deps import get_current_user as _get_current_user
-from services.file_service import save_upload, get_file, get_thumbnail_path, get_file_by_attachment
+from services.file_service import MEDIA_ROOT, save_upload, get_file, get_thumbnail_path, get_file_by_attachment
 
 router = APIRouter(tags=["files"])
 
@@ -121,10 +121,7 @@ def download_attachment_thumbnail(file_id: int) -> StreamingResponse:
     meta, abs_path = get_file_by_attachment(file_id)
     if not meta.get("thumbnail_path"):
         raise HTTPException(404, "Превью недоступно")
-    thumb_abs = os.path.join(
-        os.getenv("MEDIA_ROOT", os.path.join(os.path.dirname(__file__), "..", "media")),
-        meta["thumbnail_path"],
-    )
+    thumb_abs = os.path.join(MEDIA_ROOT, meta["thumbnail_path"])
     if not os.path.exists(thumb_abs):
         raise HTTPException(404, "Превью отсутствует на диске")
 
