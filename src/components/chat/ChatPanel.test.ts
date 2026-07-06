@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import ChatPanel from './ChatPanel.vue'
+import { useChatStore } from '@/stores/chat'
 
 // Stub vue-advanced-chat (web component — не монтируем настоящий)
 // и CreateChannelModal (не нужен для unit-теста)
@@ -43,6 +44,7 @@ vi.mock('@/api/files', () => ({
 describe('ChatPanel', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
+    vi.clearAllMocks()
   })
 
   it('монтируется и рендерит header "Чат команды"', async () => {
@@ -91,5 +93,25 @@ describe('ChatPanel', () => {
     expect(uploaded.type).toBe('application/pdf')
     // attachment_id из мока (id: 77) передан в store.sendMessage.
     expect(sendMessageSpy).toHaveBeenCalledWith(2, 'hi', undefined, 77)
+  })
+
+  it('onSend с files без blob — сообщение уходит БЕЗ attachment (не битый файл)', async () => {
+    const { filesApi } = await import('@/api/files')
+    const sendMessageSpy = vi.spyOn(useChatStore(), 'sendMessage')
+    const wrapper = mount(ChatPanel, { global: globalStubs })
+    await flushPromises()
+    // VAC file entry without a populated blob (race / large file mid-fetch).
+    ;(wrapper.vm as any).onSend({
+      detail: [{
+        content: 'hi',
+        roomId: 2,
+        files: [{ name: 'doc.pdf', type: 'application/pdf', size: 5, /* blob missing */ }],
+      }],
+    })
+    await flushPromises()
+    // upload must NOT be called (no junk "undefined" file uploaded)
+    expect(filesApi.upload).not.toHaveBeenCalled()
+    // message still sends, without an attachment_id
+    expect(sendMessageSpy).toHaveBeenCalledWith(2, 'hi', undefined, undefined)
   })
 })

@@ -109,13 +109,20 @@ async function uploadAndSend(
 ) {
   let attachmentId: number | undefined
   if (files?.length) {
-    try {
-      const f = files[0]
-      const file = new File([f.blob], f.name, { type: f.type || f.blob?.type })
-      const { data } = await filesApi.upload(file)
-      attachmentId = data.id
-    } catch (e) {
-      console.warn('attachment upload failed', e)
+    const f = files[0]
+    // VAC delivers {blob, name, type, ...}. If blob isn't populated yet (large
+    // file mid-fetch / race), new File([undefined], ...) silently produces a
+    // junk 9-byte "undefined" payload — guard and drop the attachment instead.
+    if (!f?.blob) {
+      console.warn('attachment missing blob, skipping upload', f?.name)
+    } else {
+      try {
+        const file = new File([f.blob], f.name, { type: f.type || f.blob.type })
+        const { data } = await filesApi.upload(file)
+        attachmentId = data.id
+      } catch (e) {
+        console.warn('attachment upload failed', e)
+      }
     }
   }
   store.sendMessage(numRoom, content, replyToId, attachmentId)
