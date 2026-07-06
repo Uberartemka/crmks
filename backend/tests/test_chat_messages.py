@@ -299,3 +299,57 @@ def test_send_message_with_attachment_and_reply(seeded_msgs):
     assert out["reply_message"] is not None
     assert out["attachment"] is not None
     assert out["attachment"]["id"] == 1
+
+
+def test_list_messages_includes_attachment(seeded_msgs):
+    _run(send_message(
+        channel_id=2,
+        data=MessageCreate(content="with file", attachment_id=1),
+        current_user={"id": 1, "role": "manager"},
+    ))
+    hist = _run(list_messages(channel_id=2, current_user={"id": 1, "role": "manager"}))
+    msg = hist[0]
+    assert msg["attachment"] is not None
+    assert msg["attachment"]["id"] == 1
+    assert msg["attachment"]["original_name"] == "Договор.pdf"
+    assert msg["attachment"]["is_image"] is False
+    assert msg["attachment"]["url"] == "/api/chat-attachments/1"
+    assert msg["attachment"]["thumbnail_url"] is None
+
+
+def test_list_messages_attachment_null_when_no_file(seeded_msgs):
+    _run(send_message(channel_id=2, data=MessageCreate(content="plain"), current_user={"id": 1, "role": "manager"}))
+    hist = _run(list_messages(channel_id=2, current_user={"id": 1, "role": "manager"}))
+    assert hist[0]["attachment"] is None
+
+
+def test_list_messages_attachment_image_has_thumbnail_url(seeded_msgs):
+    """Cover the is_image + thumbnail_path truthy branch of _attachment_dict.
+    Seed an image file WITH a thumbnail_path, attach it, and verify list_messages
+    returns a non-null thumbnail_url pointing at the public thumbnail endpoint."""
+    import psycopg2, os
+    TEST_DSN = os.environ.get("TEST_DATABASE_URL", "postgresql://postgres:235813@localhost:5432/hhb_b2b_test")
+    conn = psycopg2.connect(TEST_DSN)
+    try:
+        cur = conn.cursor()
+        # add an image file owned by user 1, with a thumbnail_path set
+        cur.execute(
+            "INSERT INTO files (uploaded_by, storage_path, thumbnail_path, original_name, "
+            "mime_type, size_bytes, sha256, is_image) VALUES "
+            "(1, '2026/07/img.png', '2026/07/img_thumb.jpg', 'photo.png', 'image/png', 2048, 'img-hash', true)"
+        )
+        conn.commit()
+        cur.execute("SELECT id FROM files WHERE original_name = 'photo.png' AND uploaded_by = 1 AND is_image = true")
+        img_fid = cur.fetchone()[0]
+        cur.close()
+    finally:
+        conn.close()
+    _run(send_message(
+        channel_id=2,
+        data=MessageCreate(content="see photo", attachment_id=img_fid),
+        current_user={"id": 1, "role": "manager"},
+    ))
+    hist = _run(list_messages(channel_id=2, current_user={"id": 1, "role": "manager"}))
+    msg = next(m for m in hist if m["content"] == "see photo")
+    assert msg["attachment"]["is_image"] is True
+    assert msg["attachment"]["thumbnail_url"] == f"/api/chat-attachments/{img_fid}/thumbnail"

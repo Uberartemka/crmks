@@ -211,11 +211,13 @@ async def list_messages(
                     """SELECT m.id, m.channel_id, m.author_id, m.content, m.reply_to_id,
                         m.created_at, m.edited_at, m.deleted_at, u.username, u.name,
                         p.id, p.content, p.author_id, pu.name, p.deleted_at,
-                        u.avatar_file_id
+                        u.avatar_file_id,
+                        f.id, f.original_name, f.mime_type, f.size_bytes, f.is_image, f.thumbnail_path
                         FROM messages m
                         LEFT JOIN users u ON u.id = m.author_id
                         LEFT JOIN messages p ON p.id = m.reply_to_id
                         LEFT JOIN users pu ON pu.id = p.author_id
+                        LEFT JOIN files f ON f.id = m.attachment_id
                         WHERE m.channel_id = %s AND m.id < %s
                         ORDER BY m.id DESC LIMIT %s"""
                 ),
@@ -227,11 +229,13 @@ async def list_messages(
                     """SELECT m.id, m.channel_id, m.author_id, m.content, m.reply_to_id,
                         m.created_at, m.edited_at, m.deleted_at, u.username, u.name,
                         p.id, p.content, p.author_id, pu.name, p.deleted_at,
-                        u.avatar_file_id
+                        u.avatar_file_id,
+                        f.id, f.original_name, f.mime_type, f.size_bytes, f.is_image, f.thumbnail_path
                         FROM messages m
                         LEFT JOIN users u ON u.id = m.author_id
                         LEFT JOIN messages p ON p.id = m.reply_to_id
                         LEFT JOIN users pu ON pu.id = p.author_id
+                        LEFT JOIN files f ON f.id = m.attachment_id
                         WHERE m.channel_id = %s
                         ORDER BY m.id DESC LIMIT %s"""
                 ),
@@ -427,9 +431,13 @@ def _message_row_to_dict(r) -> Dict[str, Any]:
             "author_name": r[13],
         }
     # r[15] = u.avatar_file_id (NULL if author has no avatar or was deleted).
-    # avatar_url uses the public /api/avatars/{id} path so <img>/CSS can fetch
-    # it without auth (vue-advanced-chat renders it via background-image).
     avatar_file_id = r[15] if len(r) > 15 else None
+    # r[16..21] = files row (f.id, f.original_name, f.mime_type, f.size_bytes,
+    # f.is_image, f.thumbnail_path). NULL when the message has no attachment,
+    # or when the file was hard-deleted (FK ON DELETE SET NULL → attachment_id NULL).
+    attachment = None
+    if len(r) > 16 and r[16] is not None:
+        attachment = _attachment_dict((r[16], r[17], r[18], r[19], r[20], r[21]))
     return {
         "id": r[0],
         "channel_id": r[1],
@@ -443,7 +451,10 @@ def _message_row_to_dict(r) -> Dict[str, Any]:
         "author_username": r[8],
         "author_name": r[9],
         "reply_message": reply_message,
+        # avatar_url uses the public /api/avatars/{id} path so <img>/CSS can fetch
+        # it without auth (vue-advanced-chat renders it via background-image).
         "avatar_url": f"/api/avatars/{avatar_file_id}" if avatar_file_id else None,
+        "attachment": attachment,
     }
 
 
