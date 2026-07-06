@@ -8,7 +8,7 @@ export const chatApi = {
     api.post<Channel>('/api/chat/channels', { name: data.name, type: 'topic', member_ids: data.member_ids ?? [] }),
   listMessages: (channelId: number, before?: number) =>
     api.get<ChatMessage[]>(`/api/chat/channels/${channelId}/messages`, { params: before ? { before } : {} }),
-  sendMessage: (channelId: number, data: { content: string; reply_to_id?: number | null }) =>
+  sendMessage: (channelId: number, data: { content: string; reply_to_id?: number | null; attachment_id?: number | null }) =>
     api.post<ChatMessage>(`/api/chat/channels/${channelId}/messages`, data),
   editMessage: (id: number, content: string) =>
     api.patch<{ ok: boolean }>(`/api/chat/messages/${id}`, { content }),
