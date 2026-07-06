@@ -1,12 +1,14 @@
 """File upload/download REST endpoints. Thin layer over file_service."""
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, File, Request, UploadFile
+import os
+
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from fastapi.responses import StreamingResponse
 from urllib.parse import quote
 
 from auth_deps import get_current_user as _get_current_user
-from services.file_service import save_upload, get_file, get_thumbnail_path
+from services.file_service import save_upload, get_file, get_thumbnail_path, get_file_by_attachment
 
 router = APIRouter(tags=["files"])
 
@@ -66,6 +68,68 @@ def download_thumbnail(
 
     def iterfile():
         with open(abs_path, "rb") as f:
+            while True:
+                chunk = f.read(64 * 1024)
+                if not chunk:
+                    break
+                yield chunk
+
+    quoted = quote(meta["original_name"])
+    return StreamingResponse(
+        iterfile(),
+        media_type="image/jpeg",
+        headers={
+            "Content-Disposition": f"inline; filename*=UTF-8''{quoted}",
+            "Cache-Control": "public, max-age=86400",
+        },
+    )
+
+
+@router.get("/api/chat-attachments/{file_id}")
+def download_attachment(file_id: int) -> StreamingResponse:
+    """Public attachment delivery — NO auth.
+
+    <img src>/CSS cannot send Bearer, so attachments are served without auth,
+    gated by EXISTS(messages.attachment_id = file.id AND deleted_at IS NULL).
+    Mirrors /api/avatars/{id}. Content-Disposition uses quote() (response-path
+    header-injection defense, same as download_file above).
+    """
+    meta, abs_path = get_file_by_attachment(file_id)
+
+    def iterfile():
+        with open(abs_path, "rb") as f:
+            while True:
+                chunk = f.read(64 * 1024)
+                if not chunk:
+                    break
+                yield chunk
+
+    quoted = quote(meta["original_name"])
+    return StreamingResponse(
+        iterfile(),
+        media_type=meta["mime_type"],
+        headers={
+            "Content-Disposition": f"inline; filename*=UTF-8''{quoted}",
+            "Content-Length": str(meta["size_bytes"]),
+        },
+    )
+
+
+@router.get("/api/chat-attachments/{file_id}/thumbnail")
+def download_attachment_thumbnail(file_id: int) -> StreamingResponse:
+    """Public thumbnail — NO auth. 404 if not an image / no thumbnail / not attached."""
+    meta, abs_path = get_file_by_attachment(file_id)
+    if not meta.get("thumbnail_path"):
+        raise HTTPException(404, "Превью недоступно")
+    thumb_abs = os.path.join(
+        os.getenv("MEDIA_ROOT", os.path.join(os.path.dirname(__file__), "..", "media")),
+        meta["thumbnail_path"],
+    )
+    if not os.path.exists(thumb_abs):
+        raise HTTPException(404, "Превью отсутствует на диске")
+
+    def iterfile():
+        with open(thumb_abs, "rb") as f:
             while True:
                 chunk = f.read(64 * 1024)
                 if not chunk:

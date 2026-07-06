@@ -33,6 +33,7 @@ def seeded_rs(db_conn, monkeypatch):
     cur.execute(
         """CREATE TABLE messages (id BIGSERIAL PRIMARY KEY, channel_id INTEGER, author_id INTEGER,
         content TEXT NOT NULL CHECK (char_length(content) <= 10000), reply_to_id BIGINT NULL,
+        attachment_id BIGINT NULL,
         created_at TIMESTAMPTZ DEFAULT now(), edited_at TIMESTAMPTZ NULL, deleted_at TIMESTAMPTZ NULL)"""
     )
     cur.execute("CREATE TABLE read_state (user_id INTEGER, channel_id INTEGER, last_read_message_id BIGINT DEFAULT 0, PRIMARY KEY (user_id, channel_id))")

@@ -245,3 +245,51 @@ def get_thumbnail_path(file_id: int, current_user: dict) -> Tuple[Dict[str, Any]
     if not os.path.exists(abs_path):
         raise HTTPException(404, "Превью отсутствует на диске")
     return meta, abs_path
+
+
+def get_file_by_attachment(file_id: int) -> Tuple[Dict[str, Any], str]:
+    """Gate by attachment-existence (NOT owner-check). Returns (meta, abs_path).
+
+    Public endpoint helper: the file is served WITHOUT auth, so the gate is
+    "this file is referenced by at least one NON-deleted message". Files not
+    attached to any live message → 404 (prevents enumeration of arbitrary
+    private files via this public path). Mirrors the /api/avatars/{id} gate.
+    """
+    conn = get_db()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            q(
+                """SELECT id, uploaded_by, storage_path, thumbnail_path,
+                          original_name, mime_type, size_bytes, is_image
+                   FROM files
+                   WHERE id = %s AND EXISTS (
+                       SELECT 1 FROM messages
+                       WHERE messages.attachment_id = files.id
+                         AND messages.deleted_at IS NULL
+                   )"""
+            ),
+            (file_id,),
+        )
+        row = cur.fetchone()
+    finally:
+        conn.close()
+
+    if not row:
+        raise HTTPException(404, "Вложение не найдено")
+
+    meta = {
+        "id": row[0],
+        "uploaded_by": row[1],
+        "storage_path": row[2],
+        "thumbnail_path": row[3],
+        "original_name": row[4],
+        "mime_type": row[5],
+        "size_bytes": row[6],
+        "is_image": row[7],
+    }
+    abs_path = os.path.join(MEDIA_ROOT, row[2])
+    if not os.path.exists(abs_path):
+        logger.error(f"[files] attachment {file_id} DB row exists but file missing: {abs_path}")
+        raise HTTPException(404, "Файл отсутствует на диске")
+    return meta, abs_path
